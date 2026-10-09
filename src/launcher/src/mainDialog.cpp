@@ -4,7 +4,7 @@
 #include "configuration.h"
 #include "configurationItem.h"
 #include "configurationListWidget.h"
-#include "controllerLightbar.h"
+#include "controllerPreview.h"
 #include "gameContent.h"
 #include "temporalStatus.h"
 #include "updateChecker.h"
@@ -92,7 +92,7 @@ private:
 	Ui::MainDialog* m_ui             = {nullptr};
 	MainDialog*     m_main_dialog    = nullptr;
 	UpdateChecker*  m_update_checker = nullptr;
-	ControllerLightbar m_lightbar;
+	ControllerPreview m_controller_preview;
 	QString         m_interpreter;
 	QString         m_preset_warning;
 	QLabel*         m_preset_label   = nullptr;
@@ -118,6 +118,7 @@ MainDialogPrivate::~MainDialogPrivate() {
 void MainDialogPrivate::Setup(MainDialog* main_dialog) {
 	m_ui = new Ui::MainDialog;
 	m_ui->setupUi(main_dialog);
+	m_ui->widget->SetControllerPreview(&m_controller_preview);
 
 	m_main_dialog = main_dialog;
 	m_update_checker = new UpdateChecker(main_dialog);
@@ -133,7 +134,7 @@ void MainDialogPrivate::Setup(MainDialog* main_dialog) {
 	connect(m_ui->widget, &ConfigurationListWidget::PreviewControllerColor, this,
 	        [this](const QString& color) {
 		        if (m_process.state() == QProcess::NotRunning) {
-			        m_lightbar.SetColor(color);
+			        m_controller_preview.SetColor(color);
 		        }
 	        });
 	connect(m_ui->widget, &ConfigurationListWidget::Run, this, &MainDialogPrivate::Run);
@@ -585,7 +586,7 @@ void MainDialogPrivate::Run() {
 	}
 
 	m_running_item->SetRunning(true);
-	m_lightbar.Stop();
+	m_controller_preview.SetSuspended(true);
 
 	auto info = m_ui->widget->CreateConfiguration(*m_running_item);
 	m_main_dialog->RunInterpreter(&m_process, *info);
@@ -606,10 +607,11 @@ void MainDialogPrivate::Update() {
 
 	m_ui->widget->SetRunEnabled(run_enabled);
 	if (m_process.state() != QProcess::NotRunning) {
-		m_lightbar.Stop();
+		m_controller_preview.SetSuspended(true);
 		return;
 	}
-	m_lightbar.SetColor(m_ui->widget->GetGlobalControllerColor());
+	m_controller_preview.SetSuspended(false);
+	m_controller_preview.SetColor(m_ui->widget->GetGlobalControllerColor());
 }
 
 #include "mainDialog.moc"
