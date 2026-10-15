@@ -2,6 +2,7 @@
 #include "common/ramStats.h"
 
 #include "common/assert.h"
+#include "common/cpuPlacement.h"
 #include "common/prepPhases.h"
 #include "common/crashContext.h"
 #include "common/emulatorConfig.h"
@@ -1350,6 +1351,7 @@ private:
 
 	void Run(const std::stop_token& stop) {
 		Profiler::SetThreadName("SpirvValidator");
+		Common::PlaceHelperThread(Common::HelperClass::Background);
 		for (;;) {
 			Job job;
 			{
@@ -2351,6 +2353,7 @@ struct PipelineCache::ProgramCache {
 	private:
 		void Run(const std::stop_token& stop) {
 			Profiler::SetThreadName("ProgramCacheCheck");
+			Common::PlaceHelperThread(Common::HelperClass::Background);
 			for (;;) {
 				BackgroundCheck job;
 				{
@@ -3889,6 +3892,7 @@ struct PipelineCache::LibraryState {
 
 	void Run(const std::stop_token& stop) {
 		Profiler::SetThreadName("PipelineOptimizer");
+		Common::PlaceHelperThread(Common::HelperClass::Background);
 		for (;;) {
 			Job job;
 			{
@@ -4744,6 +4748,7 @@ struct PipelineCache::ComputePrewarm {
 			named = true;
 			LowerCurrentThreadPriority();
 			Profiler::SetThreadName("ComputePrewarm");
+			Common::PlaceHelperThread(Common::HelperClass::Background);
 		}
 		{
 			Common::LockGuard lock(cache.m_mutex);
@@ -4929,6 +4934,7 @@ struct PipelineCache::JournalReplay {
 	void Worker() {
 		if (low_priority) LowerCurrentThreadPriority();
 		Profiler::SetThreadName("PipelineJournal");
+		Common::PlaceHelperThread(Common::HelperClass::Background);
 		// The pipelines need the programs' modules: wait for the shader precompile replay.
 		if (cache.m_shader_precompiler != nullptr) cache.m_shader_precompiler->Wait();
 		std::call_once(order_once, [this] {
@@ -5551,6 +5557,7 @@ struct PipelineCache::StatsReporter {
 
 	void Run(const std::stop_token& stop) {
 		Profiler::SetThreadName("PipelineStats");
+		Common::PlaceHelperThread(Common::HelperClass::Background);
 		auto before    = Values();
 		auto before_ns = CompileClockNs();
 		std::unique_lock lock(mutex);
@@ -5850,6 +5857,7 @@ struct PipelineCache::DriverCacheSaver {
 
 	void Run(const std::stop_token& stop) {
 		Profiler::SetThreadName("PipelineCacheSaver");
+		Common::PlaceHelperThread(Common::HelperClass::Background);
 		std::mutex                  mutex;
 		std::condition_variable_any wake;
 		std::unique_lock            lock(mutex);
@@ -6113,7 +6121,10 @@ void PipelineCache::InitializeShaderPrecompile() {
 	    std::clamp<uint64_t>(EnvU64("KYTY_SHADER_PRECOMPILE_THREADS", prepare ? 8 : 2), 1, 16));
 	replay.low_priority = !prepare;
 	replay.max_entries = EnvU64("KYTY_SHADER_PRECOMPILE_MAX", 30000);
-	replay.thread_init = [](uint32_t) { Profiler::SetThreadName("ShaderPrecompile"); };
+	replay.thread_init = [](uint32_t) {
+		Profiler::SetThreadName("ShaderPrecompile");
+		Common::PlaceHelperThread(Common::HelperClass::Background);
+	};
 	// The software ray-tracing kernels first (and their pipelines, started as each is published):
 	// a cold pipeline build takes seconds, and the game needs them at its first lighting pass.
 	replay.priority_source = [](const ShaderJournal::Source& source) {

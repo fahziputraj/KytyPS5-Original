@@ -180,6 +180,98 @@ void TestLayouts() {
 	std::puts("CpuPlacementTests: layouts ok");
 }
 
+// A hybrid Intel Core i5-13500 as GetSystemCpuSetInformation reports it: 6 P-cores with SMT
+// (logical 0-11, EfficiencyClass 1), 8 E-cores (12-19, class 0), one last-level cache, every
+// SchedulingClass 0. `e_first`: the E-cores listed with the lowest indices instead.
+std::vector<CpuSetInfo> HybridTable(uint64_t allowed, bool e_first = false) {
+	std::vector<CpuSetInfo> sets;
+	for (uint32_t lp = 0; lp < 20; lp++) {
+		const bool p_core = e_first ? lp >= 8 : lp < 12;
+		CpuSetInfo set;
+		set.id               = 256 + lp;
+		set.logical          = static_cast<uint8_t>(lp);
+		set.core             = static_cast<uint8_t>(p_core ? lp & ~1u : lp); // SMT pairs
+		set.efficiency_class = p_core ? 1 : 0;
+		set.allowed          = ((allowed >> lp) & 1u) != 0;
+		sets.push_back(set);
+	}
+	return sets;
+}
+
+void TestHybrid() {
+	using Common::ComputeCpuLayout;
+	using Common::HelperClass;
+	using Common::HelperCpuSets;
+	using Common::HybridMode;
+	using Common::SplitByCoreClass;
+	{
+		auto layout = ComputeCpuLayout(HybridTable(0xFFFFF), CpuReserveMode::CpRecorder, -1);
+		Check(layout.reserved && layout.cp_mask == 0xC && layout.recorder_mask == 0x30,
+		      "i5-13500: CP on logical 2-3, recorder on 4-5");
+		SplitByCoreClass(HybridTable(0xFFFFF), layout);
+		Check(layout.hybrid && layout.performance_mask == 0xFC3 && layout.efficiency_mask == 0xFF000,
+		      "i5-13500: P-cores 0-1,6-11 and E-cores 12-19 outside the reservation");
+		Check(HelperCpuSets(layout, HybridMode::On, HelperClass::Pipeline) == layout.performance_ids &&
+		          layout.performance_ids.size() == 8,
+		      "on: pipeline helpers on the 8 free P-core processors");
+		Check(HelperCpuSets(layout, HybridMode::On, HelperClass::Background) == layout.efficiency_ids &&
+		          layout.efficiency_ids.size() == 8,
+		      "on: background helpers on the 8 E-cores");
+		Check(HelperCpuSets(layout, HybridMode::Background, HelperClass::Pipeline).empty() &&
+		          HelperCpuSets(layout, HybridMode::Background, HelperClass::Background).size() == 8,
+		      "background: only the background helpers move");
+		Check(HelperCpuSets(layout, HybridMode::Off, HelperClass::Background).empty(),
+		      "off: nothing moves");
+	}
+	{
+		// E-cores enumerated first: the reservation still takes P-cores only.
+		const auto layout = ComputeCpuLayout(HybridTable(0xFFFFF, true), CpuReserveMode::CpRecorder, -1);
+		Check(layout.reserved && (layout.cp_mask & 0xFF) == 0 && (layout.recorder_mask & 0xFF) == 0,
+		      "E-cores first: CP and recorder still on P-cores");
+	}
+	{
+		// No reservation: the split covers every allowed processor.
+		auto layout = ComputeCpuLayout(HybridTable(0xFFFFF), CpuReserveMode::Off, -1);
+		SplitByCoreClass(HybridTable(0xFFFFF), layout);
+		Check(layout.hybrid && layout.performance_mask == 0xFFF && layout.efficiency_mask == 0xFF000,
+		      "no reservation: all 12 P-core and 8 E-core processors");
+	}
+	{
+		// Only 2 P-cores allowed, both reserved: no P-core left for the pipeline helpers.
+		auto sets   = HybridTable(0xFF00F);
+		auto layout = ComputeCpuLayout(sets, CpuReserveMode::CpRecorder, -1, 4);
+		SplitByCoreClass(sets, layout);
+		Check(layout.reserved && !layout.hybrid &&
+		          HelperCpuSets(layout, HybridMode::On, HelperClass::Pipeline).empty(),
+		      "P-cores all reserved: general processors are one class, nothing moves");
+		// 3 P-cores: one left over (2 processors), below kMinPipelineProcessors.
+		sets   = HybridTable(0xFF03F);
+		layout = ComputeCpuLayout(sets, CpuReserveMode::CpRecorder, -1, 4);
+		SplitByCoreClass(sets, layout);
+		Check(layout.hybrid && layout.performance_ids.size() == 2 &&
+		          HelperCpuSets(layout, HybridMode::On, HelperClass::Pipeline).empty() &&
+		          !HelperCpuSets(layout, HybridMode::On, HelperClass::Background).empty(),
+		      "too few free P-core processors: pipeline helpers keep the process default");
+	}
+	{
+		// One class (the 7950X3D table): never hybrid.
+		auto layout = ComputeCpuLayout(MachineTable(0xFFFF), CpuReserveMode::Cp, -1);
+		SplitByCoreClass(MachineTable(0xFFFF), layout);
+		Check(!layout.hybrid && layout.performance_ids.empty() && layout.efficiency_ids.empty(),
+		      "one core class: not hybrid");
+	}
+	bool valid = false;
+	Check(Common::ParseHybridMode("on", &valid) == HybridMode::On && valid, "hybrid on");
+	Check(Common::ParseHybridMode("1", &valid) == HybridMode::On && valid, "hybrid 1");
+	Check(Common::ParseHybridMode("background", &valid) == HybridMode::Background && valid,
+	      "hybrid background");
+	Check(Common::ParseHybridMode("2", &valid) == HybridMode::Background && valid, "hybrid 2");
+	Check(Common::ParseHybridMode("off", &valid) == HybridMode::Off && valid, "hybrid off");
+	Check(Common::ParseHybridMode(nullptr, &valid) == HybridMode::Off && valid, "hybrid unset");
+	Check(Common::ParseHybridMode("bogus", &valid) == HybridMode::Off && !valid, "hybrid bogus");
+	std::puts("CpuPlacementTests: hybrid ok");
+}
+
 void TestAffinityAndModes() {
 	const auto layout = Common::ComputeCpuLayout(MachineTable(0xFFFF), CpuReserveMode::Cp, -1);
 	Check(Common::GeneralPoolAffinity(0x4, layout) == layout.general_mask,
@@ -274,6 +366,40 @@ struct Load {
 	std::vector<uint64_t>    per_thread;
 	std::vector<std::thread> threads;
 };
+
+// --hybrid (KYTY_CPU_HYBRID=on): under a full load, a Pipeline helper runs only on the free P-core
+// processors and a Background helper only on the E-cores (skipped on a CPU of one core class).
+void TestLiveHybrid() {
+	const auto layout = Common::CurrentCpuLayout();
+	std::printf("CpuPlacementTests: live hybrid: P-core 0x%" PRIx64 ", E-core 0x%" PRIx64 "\n",
+	            layout.performance_mask, layout.efficiency_mask);
+	if (!layout.hybrid) {
+		std::puts("CpuPlacementTests: live hybrid skipped (one core class)");
+		return;
+	}
+	uint64_t load_seen = 0;
+	uint64_t pipeline  = 0;
+	uint64_t background = 0;
+	{
+		Load load(load_seen);
+		std::thread a([&] {
+			Common::PlaceHelperThread(Common::HelperClass::Pipeline);
+			pipeline = RunAndRecord(1500);
+		});
+		std::thread b([&] {
+			Common::PlaceHelperThread(Common::HelperClass::Background);
+			background = RunAndRecord(1500);
+		});
+		a.join();
+		b.join();
+	}
+	std::printf("  ran on: pipeline 0x%" PRIx64 ", background 0x%" PRIx64 "\n", pipeline, background);
+	Check(pipeline != 0 && (pipeline & ~layout.performance_mask) == 0,
+	      "a pipeline helper stays on the free P-core processors");
+	Check(background != 0 && (background & ~layout.efficiency_mask) == 0,
+	      "a background helper stays on the E-cores");
+	std::puts("CpuPlacementTests: live hybrid ok");
+}
 
 void TestLive(CpuReserveMode mode) {
 	// A thread that exists before the layout is applied (like the process's early threads).
@@ -880,6 +1006,8 @@ int main(int argc, char** argv) {
 		mode       = Common::ParseCpuReserveMode(argv[2], &valid);
 		Check(valid && mode != CpuReserveMode::Off, "--mode cp|cp+recorder");
 	}
+	const bool hybrid = argc >= 2 && std::strcmp(argv[argc - 1], "--hybrid") == 0;
+	SetEnv("KYTY_CPU_HYBRID", hybrid ? "on" : "");
 	// Before anything reads them (both are evaluated once).
 	SetEnv("KYTY_CPU_RESERVE", mode == CpuReserveMode::Cp ? "cp" : "cp+recorder");
 	SetEnv("KYTY_CPU_PLACEMENT_SAMPLES", "1");
@@ -889,10 +1017,14 @@ int main(int argc, char** argv) {
 	Profiler::Detail::g_event_sink.store(Profiler::Detail::CounterSink::Thread);
 
 	TestLayouts();
+	TestHybrid();
 	TestAffinityAndModes();
 	Check(Common::GetCpuReserveMode() == mode, "KYTY_CPU_RESERVE");
 #if defined(_WIN32)
 	TestLive(mode);
+	if (hybrid) {
+		TestLiveHybrid();
+	}
 #else
 	std::puts("CpuPlacementTests: live placement skipped (Windows only)");
 #endif

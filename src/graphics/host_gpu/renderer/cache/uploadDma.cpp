@@ -2,6 +2,7 @@
 
 #include "common/alignment.h"
 #include "common/assert.h"
+#include "common/cpuPlacement.h"
 #include "common/hangWatchdog.h"
 #include "common/logging/log.h"
 #include "common/profiler.h"
@@ -345,6 +346,7 @@ void UploadDma::HoldWorkerForTest(bool hold) {
 
 void UploadDma::Worker(std::stop_token stop) {
 	KYTY_PROFILER_THREAD("Upload DMA");
+	Common::PlaceHelperThread(Common::HelperClass::Pipeline);
 	(void)stop;
 	std::vector<Job> jobs;
 	for (;;) {

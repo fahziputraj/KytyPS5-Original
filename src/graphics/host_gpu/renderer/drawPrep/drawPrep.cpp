@@ -1088,6 +1088,8 @@ struct Engine::Workers {
 		char name[32];
 		std::snprintf(name, sizeof(name), "DrawPrep#%u", index + 1u);
 		Profiler::SetThreadName(name);
+		// The CP spins on the head slot a worker has claimed (KYTY_CPU_HYBRID: P-cores).
+		Common::PlaceHelperThread(Common::HelperClass::Pipeline);
 		t_worker_thread = true;
 		uint32_t placement_count = 0; // placement samples (common/cpuPlacement.h), every 64th slot
 		t_worker_number = index + 1u;

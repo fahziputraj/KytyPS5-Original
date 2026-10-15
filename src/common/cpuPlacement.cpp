@@ -65,10 +65,18 @@ CpuLayout ComputeCpuLayout(const std::vector<CpuSetInfo>& sets, CpuReserveMode m
 		int                            index      = 0;
 		uint8_t                        cache      = 0;
 		uint8_t                        preference = 0;
+		uint8_t                        efficiency = 0;
 		bool                           whole      = true; // every logical processor allowed
 		bool                           has_zero   = false;
 		std::vector<const CpuSetInfo*> processors;
 	};
+	// Hybrid CPUs: only cores of the fastest allowed class are reserved (and decide the cache).
+	uint8_t fastest = 0;
+	for (const auto& set: sets) {
+		if (set.group == 0 && set.logical < 64 && set.allowed) {
+			fastest = std::max(fastest, set.efficiency_class);
+		}
+	}
 	std::map<int, Core>         cores;
 	std::map<uint8_t, uint32_t> allowed_per_cache;
 	for (const auto& set: sets) {
@@ -79,10 +87,11 @@ CpuLayout ComputeCpuLayout(const std::vector<CpuSetInfo>& sets, CpuReserveMode m
 		core.index      = set.core;
 		core.cache      = set.cache;
 		core.preference = std::max(core.preference, set.scheduling_class);
+		core.efficiency = std::max(core.efficiency, set.efficiency_class);
 		core.whole      = core.whole && set.allowed;
 		core.has_zero   = core.has_zero || set.logical == 0;
 		core.processors.push_back(&set);
-		if (set.allowed) {
+		if (set.allowed && set.efficiency_class == fastest) {
 			allowed_per_cache[set.cache]++;
 		}
 	}
@@ -101,7 +110,7 @@ CpuLayout ComputeCpuLayout(const std::vector<CpuSetInfo>& sets, CpuReserveMode m
 	}
 	std::vector<const Core*> candidates;
 	for (const auto& [index, core]: cores) {
-		if (core.whole && core.cache == cache) {
+		if (core.whole && core.cache == cache && core.efficiency == fastest) {
 			candidates.push_back(&core);
 		}
 	}
@@ -176,6 +185,91 @@ CpuLayout ComputeCpuLayout(const std::vector<CpuSetInfo>& sets, CpuReserveMode m
 	}
 	layout.description += ", other threads on " + MaskText(layout.general_mask);
 	return layout;
+}
+
+void SplitByCoreClass(const std::vector<CpuSetInfo>& sets, CpuLayout& layout) {
+	layout.hybrid = false;
+	layout.performance_ids.clear();
+	layout.efficiency_ids.clear();
+	layout.performance_mask = 0;
+	layout.efficiency_mask  = 0;
+	const auto usable       = [&layout](const CpuSetInfo& set) {
+        if (set.group != 0 || set.logical >= 64 || !set.allowed) {
+            return false;
+        }
+        return !layout.reserved || ((layout.general_mask >> set.logical) & 1u) != 0;
+	};
+	uint8_t fastest = 0;
+	uint8_t slowest = UINT8_MAX;
+	for (const auto& set: sets) {
+		if (usable(set)) {
+			fastest = std::max(fastest, set.efficiency_class);
+			slowest = std::min(slowest, set.efficiency_class);
+		}
+	}
+	if (slowest == UINT8_MAX || slowest == fastest) {
+		return;
+	}
+	layout.hybrid = true;
+	for (const auto& set: sets) {
+		if (!usable(set)) {
+			continue;
+		}
+		const auto bit = uint64_t {1} << set.logical;
+		if (set.efficiency_class == fastest) {
+			layout.performance_ids.push_back(set.id);
+			layout.performance_mask |= bit;
+		} else {
+			layout.efficiency_ids.push_back(set.id);
+			layout.efficiency_mask |= bit;
+		}
+	}
+}
+
+std::vector<uint32_t> HelperCpuSets(const CpuLayout& layout, HybridMode mode, HelperClass helper) {
+	if (mode == HybridMode::Off || !layout.hybrid) {
+		return {};
+	}
+	if (helper == HelperClass::Pipeline) {
+		if (mode != HybridMode::On || layout.performance_ids.size() < kMinPipelineProcessors) {
+			return {};
+		}
+		return layout.performance_ids;
+	}
+	return layout.efficiency_ids;
+}
+
+HybridMode ParseHybridMode(const char* text, bool* valid) {
+	if (valid != nullptr) {
+		*valid = true;
+	}
+	if (text == nullptr || *text == '\0' || std::strcmp(text, "off") == 0 ||
+	    std::strcmp(text, "0") == 0) {
+		return HybridMode::Off;
+	}
+	if (std::strcmp(text, "on") == 0 || std::strcmp(text, "1") == 0) {
+		return HybridMode::On;
+	}
+	if (std::strcmp(text, "background") == 0 || std::strcmp(text, "2") == 0) {
+		return HybridMode::Background;
+	}
+	if (valid != nullptr) {
+		*valid = false;
+	}
+	return HybridMode::Off;
+}
+
+HybridMode GetHybridMode() {
+	static const HybridMode mode = [] {
+		const auto* value = EnvValue("KYTY_CPU_HYBRID");
+		bool        valid = true;
+		const auto  mode  = ParseHybridMode(value, &valid);
+		if (!valid) {
+			std::printf("KYTY_CPU_HYBRID must be off, on or background (got '%s'): off\n", value);
+		}
+		return mode;
+	}();
+	return mode;
 }
 
 uint64_t GeneralPoolAffinity(uint64_t affinity, const CpuLayout& layout) {
@@ -351,6 +445,7 @@ std::vector<CpuSetInfo> ReadCpuSets(uint64_t& affinity, const std::vector<ULONG>
 			set.core             = cpu.CoreIndex;
 			set.cache            = cpu.LastLevelCacheIndex;
 			set.scheduling_class = cpu.SchedulingClass;
+			set.efficiency_class = cpu.EfficiencyClass;
 			const bool ours      = cpu.Allocated == 0 || cpu.AllocatedToTargetProcess != 0;
 			const bool in_constraint =
 			    restriction != 0
@@ -379,6 +474,8 @@ struct State {
 #if defined(_WIN32)
 	// The threads placed on reserved cores (their sets are re-applied when the layout changes).
 	std::array<HANDLE, static_cast<size_t>(ThreadRole::Count)> threads {};
+	// KYTY_CPU_HYBRID: the helper threads placed by class (closed once they have exited).
+	std::vector<std::pair<HANDLE, HelperClass>> helpers;
 	bool applied_default = false; // our process default CPU sets are in effect
 	// The constraint without KYTY_CPU_SETS: the default CPU sets found at startup, replaced by
 	// another process's when it replaces ours (KYTY_CPU_RESERVE_REASSERT). Restored when nothing
@@ -454,7 +551,24 @@ uint64_t LogicalMaskOfIds(const State& state, const std::vector<ULONG>& ids) {
 	}
 	return mask;
 }
+
+// Closes the handles of helper threads that have exited.
+void PruneExitedHelpersLocked(State& state) {
+	auto& helpers = state.helpers;
+	helpers.erase(std::remove_if(helpers.begin(), helpers.end(),
+	                             [](const std::pair<HANDLE, HelperClass>& helper) {
+		                             if (WaitForSingleObject(helper.first, 0) != WAIT_OBJECT_0) {
+			                             return false;
+		                             }
+		                             CloseHandle(helper.first);
+		                             return true;
+	                             }),
+	              helpers.end());
+}
 #endif
+
+void ApplyReservationLocked(State& state, const char* why, bool log);
+void ApplyHelpersLocked(State& state, bool log);
 
 // State mutex held: computes the layout for the current process mask and constraint and applies
 // it: the process default CPU sets (the general processors of a reservation, or every allowed
@@ -468,12 +582,52 @@ void ApplyLayoutLocked(State& state, const char* why, bool log = true) {
 #endif
 	state.affinity = affinity;
 	PublishTopology(state.sets);
-	const auto mode        = GetCpuReserveMode();
-	const auto restriction = CpuSetsMask();
-	state.layout           = ComputeCpuLayout(state.sets, mode, ForcedCpLogical());
-	if (mode == CpuReserveMode::Off && restriction == 0) {
+	const auto mode = GetCpuReserveMode();
+	state.layout    = ComputeCpuLayout(state.sets, mode, ForcedCpLogical());
+	if (mode != CpuReserveMode::Off || CpuSetsMask() != 0) {
+		ApplyReservationLocked(state, why, log);
+	}
+	ApplyHelpersLocked(state, log);
+}
+
+// KYTY_CPU_HYBRID: splits the layout by core class and applies the helper threads' CPU sets.
+void ApplyHelpersLocked(State& state, bool log) {
+	const auto hybrid = GetHybridMode();
+	if (hybrid == HybridMode::Off) {
 		return;
 	}
+	SplitByCoreClass(state.sets, state.layout);
+#if defined(_WIN32)
+	PruneExitedHelpersLocked(state);
+	for (const auto& [thread, helper]: state.helpers) {
+		ApplyThreadSets(thread, HelperCpuSets(state.layout, hybrid, helper));
+	}
+#endif
+	if (!log) {
+		return;
+	}
+	if (!state.layout.hybrid) {
+		std::printf("Kyty CPU placement (KYTY_CPU_HYBRID): all cores are of one class here; nothing "
+		            "changes\n");
+	} else {
+		const auto pipeline =
+		    HelperCpuSets(state.layout, hybrid, HelperClass::Pipeline).empty()
+		        ? std::string(hybrid == HybridMode::On ? "too few P-core processors: process default"
+		                                               : "process default")
+		        : "logical " + MaskText(state.layout.performance_mask);
+		std::printf("Kyty CPU placement (KYTY_CPU_HYBRID=%s): CP helper threads (sequencer, "
+		            "draw prep, submission, upload) on %s; background compiles on E-core logical "
+		            "%s\n",
+		            hybrid == HybridMode::On ? "on" : "background", pipeline.c_str(),
+		            MaskText(state.layout.efficiency_mask).c_str());
+	}
+	std::fflush(stdout);
+}
+
+// The reservation part of ApplyLayoutLocked (KYTY_CPU_RESERVE / KYTY_CPU_SETS in effect).
+void ApplyReservationLocked(State& state, const char* why, bool log) {
+	const auto mode        = GetCpuReserveMode();
+	const auto restriction = CpuSetsMask();
 #if defined(_WIN32)
 	std::vector<ULONG> wanted;
 	if (state.layout.reserved) {
@@ -542,7 +696,8 @@ void ApplyLayoutLocked(State& state, const char* why, bool log = true) {
 // process default CPU sets); every 5 s: the hard-affinity scan.
 void StartMonitor() {
 #if defined(_WIN32)
-	const bool maintain = GetCpuReserveMode() != CpuReserveMode::Off || CpuSetsMask() != 0;
+	const bool maintain = GetCpuReserveMode() != CpuReserveMode::Off || CpuSetsMask() != 0 ||
+	                      GetHybridMode() != HybridMode::Off;
 	const bool repin    = maintain && RepinEnabled();
 	const bool scan     = repin || PlacementSamplingEnabled();
 	if (!maintain && !scan) {
@@ -585,7 +740,8 @@ void InitCpuPlacement() {
 
 void MaintainCpuPlacement() {
 #if defined(_WIN32)
-	if (GetCpuReserveMode() == CpuReserveMode::Off && CpuSetsMask() == 0) {
+	if (GetCpuReserveMode() == CpuReserveMode::Off && CpuSetsMask() == 0 &&
+	    GetHybridMode() == HybridMode::Off) {
 		return;
 	}
 	DWORD_PTR process_mask = 0;
@@ -658,6 +814,28 @@ void PlaceCurrentThread(ThreadRole role) {
 	}
 #else
 	(void)role;
+#endif
+}
+
+void PlaceHelperThread(HelperClass helper) {
+	InitCpuPlacement();
+#if defined(_WIN32)
+	const auto hybrid = GetHybridMode();
+	if (hybrid == HybridMode::Off ||
+	    (helper == HelperClass::Pipeline && hybrid != HybridMode::On)) {
+		return;
+	}
+	auto&           state = GetState();
+	std::lock_guard lock(state.mutex);
+	PruneExitedHelpersLocked(state);
+	HANDLE handle = nullptr;
+	if (DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &handle, 0,
+	                    FALSE, DUPLICATE_SAME_ACCESS) != 0) {
+		state.helpers.emplace_back(handle, helper);
+	}
+	ApplyThreadSets(GetCurrentThread(), HelperCpuSets(state.layout, hybrid, helper));
+#else
+	(void)helper;
 #endif
 }
 

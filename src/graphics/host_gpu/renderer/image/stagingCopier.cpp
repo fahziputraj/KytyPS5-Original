@@ -1,6 +1,7 @@
 #include "graphics/host_gpu/renderer/image/stagingCopier.h"
 
 #include "common/assert.h"
+#include "common/cpuPlacement.h"
 #include "common/hangWatchdog.h"
 #include "common/logging/log.h"
 #include "common/profiler.h"
@@ -106,6 +107,7 @@ void StagingCopier::Run(Job& job) {
 
 void StagingCopier::Worker(std::stop_token stop) {
 	KYTY_PROFILER_THREAD("Texture staging copies");
+	Common::PlaceHelperThread(Common::HelperClass::Pipeline);
 	(void)stop;
 	for (;;) {
 		Job job;

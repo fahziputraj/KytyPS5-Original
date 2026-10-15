@@ -1,6 +1,7 @@
 #include "graphics/guest_gpu/command_processor/cpSequencer.h"
 
 #include "common/assert.h"
+#include "common/cpuPlacement.h"
 #include "common/hangWatchdog.h"
 #include "common/logging/log.h"
 #include "common/profiler.h"
@@ -188,6 +189,7 @@ void Sequencer::Run() {
 	KYTY_PROFILER_THREAD("CpSequencer");
 	// The resolver waits for it at every ordering point, like a CP waits for its fetcher.
 	Common::RaiseCurrentThreadPriority();
+	Common::PlaceHelperThread(Common::HelperClass::Pipeline);
 #if defined(_WIN32)
 	if (const auto* ideal = std::getenv("KYTY_CP_SEQ_IDEAL_CPU"); ideal != nullptr) {
 		const auto       cpu = static_cast<uint32_t>(std::strtoul(ideal, nullptr, 10));

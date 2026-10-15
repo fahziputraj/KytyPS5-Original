@@ -49,6 +49,22 @@
 // threads run there again. Without KYTY_CPU_SETS the other process's sets become the constraint the
 // layout is computed in (Process Lasso's (0-31) leaves it unchanged).
 //
+// Hybrid CPUs (performance and efficiency cores, e.g. Intel 12th-14th gen: GetSystemCpuSetInformation
+// reports a higher EfficiencyClass for the P-cores):
+// - The CP's and the recorder's cores are always chosen among the fastest class (before, only the
+//   index order kept them off the E-cores).
+// - KYTY_CPU_HYBRID=off (default): nothing else changes.
+//   on (1): the helper threads the CP waits for (Pipeline: the sequencer it waits for at every
+//   ordering point, the draw-prep workers whose claimed head slot it spins on, the queue
+//   submission, upload DMA and texture staging threads) run on the other P-cores, and the
+//   background compiles (Background: pipeline optimizer, journal replay, compute prewarm,
+//   ray-tracing pipelines, shader precompile, cache load/save) on the E-cores, so they never take a
+//   P-core from the frame. Guest threads keep the process default (P- and E-cores).
+//   background (2): only the Background part.
+//   The Pipeline part needs at least kMinPipelineProcessors P-core processors outside the reserved
+//   cores; without them those threads keep the process default. On a CPU whose cores are all of
+//   one class it does nothing (logged).
+//
 // Placement samples, with the profiler's aggregates, the hang trace or
 // KYTY_CPU_PLACEMENT_SAMPLES=1: the CP, the recorder, guest threads, draw-prep workers and service
 // threads note where they run.
@@ -62,6 +78,9 @@ namespace Common {
 
 enum class ThreadRole : uint8_t { Cp = 0, Recorder = 1, Guest = 2, Host = 3, Count = 4 };
 enum class CpuReserveMode : uint8_t { Off, Cp, CpRecorder };
+enum class HybridMode : uint8_t { Off, On, Background };
+// Host helper threads by how close they are to the frame's critical path (KYTY_CPU_HYBRID).
+enum class HelperClass : uint8_t { Pipeline, Background };
 
 // One logical processor as GetSystemCpuSetInformation reports it.
 struct CpuSetInfo {
@@ -71,6 +90,7 @@ struct CpuSetInfo {
 	uint8_t  core             = 0; // CoreIndex: shared by SMT siblings
 	uint8_t  cache            = 0; // LastLevelCacheIndex
 	uint8_t  scheduling_class = 0; // higher = preferred (CPPC)
+	uint8_t  efficiency_class = 0; // EfficiencyClass: higher = faster core (hybrid: the P-cores)
 	bool     allowed          = false;
 };
 
@@ -85,14 +105,27 @@ struct CpuLayout {
 	uint64_t              recorder_mask = 0;
 	uint64_t              general_mask  = 0;
 	std::string           description; // the choice, or why nothing was reserved
+	// SplitByCoreClass: the processors the other threads use (the general ones of a reservation,
+	// otherwise every allowed one) by core class, when they differ in EfficiencyClass.
+	bool                  hybrid           = false;
+	std::vector<uint32_t> performance_ids;  // of the fastest class
+	std::vector<uint32_t> efficiency_ids;   // of the slower classes
+	uint64_t              performance_mask = 0;
+	uint64_t              efficiency_mask  = 0;
 };
 
-inline constexpr uint32_t kMinGeneralProcessors = 6;
+inline constexpr uint32_t kMinGeneralProcessors  = 6;
+inline constexpr uint32_t kMinPipelineProcessors = 4;
 
 // Pure (tested): the reserved cores for `sets` (only group 0 is considered).
 [[nodiscard]] CpuLayout ComputeCpuLayout(const std::vector<CpuSetInfo>& sets, CpuReserveMode mode,
                                          int      forced_cp_logical,
                                          uint32_t min_general = kMinGeneralProcessors);
+// Pure (tested): fills the hybrid fields of a layout ComputeCpuLayout made from the same `sets`.
+void SplitByCoreClass(const std::vector<CpuSetInfo>& sets, CpuLayout& layout);
+// Pure (tested): the CPU set ids a helper thread gets under `mode` (empty: the process default).
+[[nodiscard]] std::vector<uint32_t> HelperCpuSets(const CpuLayout& layout, HybridMode mode,
+                                                  HelperClass helper);
 // Pure (tested): the hard affinity a thread with `affinity` should get so that it stays off the
 // reserved cores: unchanged when nothing is reserved or it already meets the general processors
 // (the CPU sets narrow it), otherwise every general processor.
@@ -101,6 +134,9 @@ inline constexpr uint32_t kMinGeneralProcessors = 6;
 // KYTY_CPU_RESERVE=off|cp|cp+recorder (also 0|1|2); nullptr is off. `valid` false: unknown text.
 [[nodiscard]] CpuReserveMode ParseCpuReserveMode(const char* text, bool* valid = nullptr);
 [[nodiscard]] CpuReserveMode GetCpuReserveMode(); // KYTY_CPU_RESERVE, evaluated once
+// KYTY_CPU_HYBRID=off|on|background (also 0|1|2); nullptr is off. `valid` false: unknown text.
+[[nodiscard]] HybridMode ParseHybridMode(const char* text, bool* valid = nullptr);
+[[nodiscard]] HybridMode GetHybridMode(); // KYTY_CPU_HYBRID, evaluated once
 // Pure (tested): "0-15", "16-31", "0-7,16-23", "5" as a mask of logical processors 0..63; 0 with
 // `valid` false for empty or malformed text, a descending range or a processor above 63.
 [[nodiscard]] uint64_t ParseLogicalMask(const char* text, bool* valid = nullptr);
@@ -119,6 +155,9 @@ void MaintainCpuPlacement();
 // core in cp+recorder mode, otherwise the general processors. Other roles keep the process
 // default. No-op when nothing is reserved.
 void PlaceCurrentThread(ThreadRole role);
+// KYTY_CPU_HYBRID: the calling helper thread's CPU sets for its class (HelperCpuSets), kept when the
+// layout is applied again. No-op when the mode leaves the class alone.
+void PlaceHelperThread(HelperClass helper);
 // The current layout (a copy; tests and logs).
 [[nodiscard]] CpuLayout CurrentCpuLayout();
 

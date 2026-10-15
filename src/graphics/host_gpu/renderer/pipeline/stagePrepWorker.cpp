@@ -1,6 +1,7 @@
 #include "graphics/host_gpu/renderer/pipeline/stagePrepWorker.h"
 
 #include "common/assert.h"
+#include "common/cpuPlacement.h"
 #include "common/profiler.h"
 #include "graphics/host_gpu/gpuReadDelegate.h"
 
@@ -98,6 +99,7 @@ void StagePrepWorker::Join() {
 
 void StagePrepWorker::Run() {
 	Profiler::SetThreadName("DrawPrep#0");
+	Common::PlaceHelperThread(Common::HelperClass::Pipeline);
 	uint64_t seen = 0;
 	for (;;) {
 		auto     idle_start = NowNs();

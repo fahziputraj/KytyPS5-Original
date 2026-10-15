@@ -154,6 +154,7 @@ void QueueSubmissionBroker::Worker() {
 	KYTY_PROFILER_THREAD("Vulkan queue submission");
 	// It only blocks between submissions; the CP's work reaches the GPU through it.
 	Common::RaiseServiceThreadPriority();
+	Common::PlaceHelperThread(Common::HelperClass::Pipeline);
 	uint32_t placement_count = 0; // placement samples (common/cpuPlacement.h), every 16th drain
 	for (;;) {
 		{

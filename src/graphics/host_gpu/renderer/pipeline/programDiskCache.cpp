@@ -1,5 +1,6 @@
 #include "graphics/host_gpu/renderer/pipeline/programDiskCache.h"
 
+#include "common/cpuPlacement.h"
 #include "common/file.h"
 #include "common/logging/log.h"
 #include "common/profiler.h"
@@ -217,6 +218,7 @@ bool ProgramDiskCache::IndexRecord(uint32_t id) {
 
 void ProgramDiskCache::Load() {
 	Profiler::SetThreadName("ProgramCacheLoad");
+	Common::PlaceHelperThread(Common::HelperClass::Background);
 	const auto begin = NowNs();
 	const auto path  = Common::PathToString(m_settings.path);
 	std::vector<uint8_t> file;
@@ -467,6 +469,7 @@ bool ProgramDiskCache::Due(uint64_t now) const {
 
 void ProgramDiskCache::RunSaver() {
 	Profiler::SetThreadName("ProgramCacheSaver");
+	Common::PlaceHelperThread(Common::HelperClass::Background);
 	WaitLoaded();
 	std::unique_lock lock(m_saver_mutex);
 	while (!m_stop) {
