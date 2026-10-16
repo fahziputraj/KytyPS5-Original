@@ -70,6 +70,24 @@ int main() {
 	}
 	check(std::abs(simulated - elapsed) < 0.1,
 	      "60-to-30-to-45 FPS requested game time follows wall time");
+	simulation.Reset();
+	simulated = elapsed  = 0.0;
+	step                 = simulation.Nominal;
+	double largest_error = 0.0;
+	for (unsigned frame = 0; frame < 3000; frame++) {
+		// Uneven CPU frame times and occasional 90 ms stalls must not make the
+		// game clock jump between its endpoints or accumulate ongoing drift.
+		const double duration = frame % 120 == 0 ? 0.09 : 1.0 / 45.0;
+		simulated += step;
+		elapsed += duration;
+		const double next_step = simulation.Advance(duration);
+		check(std::abs(next_step - step) <= simulation.MaxStepChange + 1e-12,
+		      "isolated stalls and recovery cannot abruptly change the requested step");
+		step          = next_step;
+		largest_error = std::max(largest_error, std::abs(simulated - elapsed));
+	}
+	check(largest_error < 0.12 && std::abs(simulated - elapsed) < 0.02,
+	      "smoothing noisy presentation retains bounded time error without cumulative drift");
 	check(simulation.Advance(2.0) == simulation.Nominal,
 	      "a loading stall resets timing without catch-up debt");
 	check(simulation.Advance(std::numeric_limits<double>::quiet_NaN()) == simulation.Nominal,

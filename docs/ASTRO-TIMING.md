@@ -23,7 +23,13 @@ fixed 30 FPS profile. Both modes retain the same graphics and P-core settings.
 The adaptive patch is specific to the verified Astro 01.007 executable. Before
 main-output flip completion releases the guest, it updates the same guarded
 rate, seconds-per-step and microseconds-per-step values from monotonic elapsed
-frame time. An averaging controller repays small timing discrepancies gradually.
+frame time. After the first gameplay test the user reported good pace but uneven
+transitions. The revised controller filters the frame period over 80 ms, limits
+each timestep change to 1.5 ms, and spreads small timing corrections over roughly
+600 ms (at most 1 ms extra per update). Loading stalls do not pollute the period
+estimate. This deliberately trades a short transient time offset for gentler
+changes; it does not interpolate rendered frames or eliminate uneven CPU frame
+delivery. Synthetic stall tests check both step changes and cumulative time error.
 The step remains between 1/60 and 1/30 second, with a 60 FPS presentation ceiling;
 loading gaps above 250 ms reset the controller rather than building catch-up debt.
 Below 30 FPS it can still slow down. Unit tests confirm the controller's time
