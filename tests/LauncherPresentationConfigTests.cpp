@@ -148,6 +148,28 @@ int main(int argc, char** argv) {
 	check(!Cheats::SelectClockProfile({}, profiles, "guess", &selected).isEmpty(),
 	      "unknown clock selection fails closed");
 
+	// Keyboard and controller bindings survive the INI and per-game inheritance unchanged.
+	Configuration mapped;
+	mapped.host_input_mapping = {QStringLiteral("Cross=J"), QStringLiteral("Pad:Circle=South"),
+	                             QStringLiteral("Pad=Disabled"),
+	                             QStringLiteral("MouseSensitivity=2.0")};
+	{
+		QSettings settings(path, QSettings::IniFormat);
+		mapped.WriteSettings(&settings);
+		settings.sync();
+	}
+	Configuration mapped_back;
+	{
+		QSettings settings(path, QSettings::IniFormat);
+		mapped_back.ReadSettings(&settings);
+	}
+	check(mapped_back.host_input_mapping == mapped.host_input_mapping,
+	      "keyboard and controller bindings survive an INI round trip in order");
+	Configuration mapped_game;
+	mapped_game.CopyEmulatorSettingsFrom(mapped_back);
+	check(mapped_game.host_input_mapping == mapped.host_input_mapping,
+	      "a game inherits the global keyboard and controller bindings");
+
 	// FSR/DLSS status: package, title eligibility and launch options. Never a GPU claim.
 	using TemporalStatus::FsrState;
 	const QString astro = QStringLiteral("PPSA21564");
