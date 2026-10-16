@@ -1,7 +1,7 @@
 param(
     [switch]$SkipBuild,
     [switch]$PrepareOnly,
-    [ValidateSet('Preserve','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
+    [ValidateSet('Preserve','Performance1080p','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
 )
 $ErrorActionPreference = 'Stop'
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -37,7 +37,7 @@ Copy-Item -LiteralPath (Join-Path $taskRepo $taskBundledPatch) -Destination (Joi
 $taskPresetPath = Join-Path $taskDestination 'u59-preset.json'
 if (!(Test-Path -LiteralPath $taskPresetPath)) { throw 'The installed int19.1 preset is missing.' }
 $taskPreset = Get-Content -LiteralPath $taskPresetPath -Raw | ConvertFrom-Json
-foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; KYTY_CPU_HYBRID='off'; KYTY_DEFER_PROTECTS='0' }.GetEnumerator()) {
+foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; KYTY_CPU_HYBRID='on'; KYTY_WRITE_RANGE_STATS='0'; KYTY_DEFER_PROTECTS='0' }.GetEnumerator()) {
     $taskPreset | Add-Member -NotePropertyName $taskSetting.Key -NotePropertyValue $taskSetting.Value -Force
 }
 $taskPreset | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'u59-preset.json') -Encoding UTF8
@@ -119,7 +119,8 @@ if ($GraphicsProfile -ne 'Preserve') {
     if (!$taskMatch.Success) { throw 'GlobalConfiguration was not found in Kyty.ini.' }
     $taskSection = $taskMatch.Value
     $taskResolution = $(if ($GraphicsProfile -eq 'Accurate1440p') { 'R2560X1440' } else { 'R1920X1080' })
-    foreach ($taskOption in @{ screen_resolution=$taskResolution; gpu_occlusion_accurate='true'; readback_linear_images='true'; sync_raw_image_buffers='true'; tessellation_enabled='true' }.GetEnumerator()) {
+    $taskAccuracy = $(if ($GraphicsProfile -eq 'Performance1080p') { 'false' } else { 'true' })
+    foreach ($taskOption in @{ screen_resolution=$taskResolution; gpu_occlusion_accurate=$taskAccuracy; readback_linear_images=$taskAccuracy; sync_raw_image_buffers=$taskAccuracy; tessellation_enabled='true' }.GetEnumerator()) {
         $taskPattern = '(?m)^' + [regex]::Escape($taskOption.Key) + '=[^\r\n]*'
         $taskLine = $taskOption.Key + '=' + $taskOption.Value
         if ([regex]::IsMatch($taskSection, $taskPattern)) {

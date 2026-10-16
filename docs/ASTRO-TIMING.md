@@ -1,5 +1,25 @@
 # Astro Bot: 30 FPS timing and accurate graphics
 
+## Current selection (2026-10-17)
+
+The user requested returning to the earlier fixed 30 FPS profile after rejecting
+the accurate graphics / uncapped comparison: 1920 x 1080 output, tessellation on,
+accurate GPU occlusion off, linear-image readback off and raw-image synchronization
+off. Keep the guarded 30 FPS engine patch and variable presentation at 60 Hz guest
+vblank. `Start-AstroBot.ps1` defaults to this performance profile.
+
+`KYTY_CPU_HYBRID=on` puts critical graphics helper threads on the available P-cores;
+CP reservation keeps its own P-core, and background compiles use E-cores. This is
+not a process-wide exclusion of E-cores. `KYTY_WRITE_RANGE_STATS=0` removes the
+extra image-overlap query used only to count images spared by a proven write range;
+it does not change the write range or synchronization itself. A guaranteed FPS
+improvement from CPU placement has not been demonstrated in a controlled scene.
+
+The bounded adaptive-clock experiment is preserved on the separate branch
+`codex/astro-adaptive-clock-experiment` (`375ead3c`). It compiled and passed the
+pure timing test but was not validated in gameplay or included in this delivery.
+The notes below retain the preceding investigation and rejected settings.
+
 The base is Jetsku's exact `u59-windows-20261013-int19.1` tag, commit
 `28bc20f146a276479acf42d2e405fb46a4491b8e`. Local delivery tools were rebased onto
 it. The earlier official-base crash/preload experiments are preserved on

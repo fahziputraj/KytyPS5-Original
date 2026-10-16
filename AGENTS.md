@@ -16,7 +16,9 @@ Keep the guest vblank frequency at 60 for Astro; lowering it to 30 is not a
 gameplay-speed fix. A presentation cap and hardware VRR are separate facilities.
 The experimental Astro 01.007 patch pairs a guarded 30 FPS engine step with a
 30 FPS presentation cap. Preserve its version/byte checks and keep it opt-out.
-The user tested 2560 x 1440 and accurate graphics on 2026-10-17, then rejected the
-1440p output as extra lag without detail. Keep game rendering untouched and use
-Accurate1080p to restore the previous output size with accuracy options retained.
-Subsequent updates should preserve their INI.
+The user rejected the accurate graphics profile and the subsequent uncapped test
+as regressions (slow loading, missing visuals). Their latest request is to restore
+the earlier 30 FPS profile plus P-core optimization. Use Performance1080p with the
+guarded 30 FPS clock patch, KYTY_CPU_HYBRID=on and CP reservation. Keep E-cores for
+background workers. Preserve their saves and keep adaptive clock experiments on
+codex/astro-adaptive-clock-experiment; that experiment is not part of this build.
