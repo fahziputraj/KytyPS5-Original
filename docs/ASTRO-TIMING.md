@@ -1,4 +1,4 @@
-# Astro Bot: 30 FPS timing and accurate 1440p settings
+# Astro Bot: 30 FPS timing and accurate graphics
 
 The base is Jetsku's exact `u59-windows-20261013-int19.1` tag, commit
 `28bc20f146a276479acf42d2e405fb46a4491b8e`. Local delivery tools were rebased onto
@@ -79,12 +79,15 @@ addresses from that older game were not reused.
 
 ## Requested graphics profile
 
-The 1440p accurate profile selects 2560 x 1440 output, accurate GPU occlusion
+The current accurate profile selects 1920 x 1080 output, accurate GPU occlusion
 queries, linear-image readback, raw-image buffer synchronization and tessellation.
 The shader compiler keeps its performance optimization setting; validation and
 profiling remain disabled because they are debugging facilities. Output size is
 not a claim that Astro's internal render targets have been patched to native 1440p.
-This profile can cost more CPU/GPU time and does not resolve all existing rendering
+The user tested 2560 x 1440, reported extra lag without improved detail, and asked
+to revert. The earlier game buffer log registers 3840 x 2160; the host screen-size
+option changes the output swapchain. No game resolution table or render distance
+was patched. This profile can cost more CPU/GPU time and does not resolve all existing rendering
 glitches. Stable int19.1's shader precompile and pipeline journal remain enabled.
 
 Related primary sources reviewed:
@@ -115,7 +118,7 @@ The build output is `_Build/windows-int19`.
 
 `tools/update-build.ps1` runs timing/CPU placement checks, stages the runtime,
 backs up files before overwriting `F:\KytyPS5-Build`, and preserves the installed
-INI, caches and saves. `-GraphicsProfile Accurate1440p` explicitly changes the
+INI, caches and saves. `-GraphicsProfile Accurate1080p` explicitly changes the
 installed global graphics settings; subsequent updates default to preserving them.
 The Astro patch is merged into `_Patches/PPSA21564.json` for GUI launch, preserving
 other mods and backing up the previous document. Existing disabled clock mods
@@ -123,7 +126,7 @@ remain disabled. Hybrid placement is available but stays off by default until a
 same-scene performance gain is demonstrated.
 
 `Start-AstroBot.cmd` uses the guarded clock patch, variable presentation, 30 FPS
-and the accurate 1440p profile. For a lower-cost comparison, run
+and the accurate 1080p profile. For a lower-cost comparison, run
 `Start-AstroBot.ps1 -Graphics Performance -Width 1920 -Height 1080`.
 For original game timing, use `-Clock Original -Fps 0`; `-Timing Fixed` is available
 with that original clock. Normal play uses silent guest logging.
@@ -131,10 +134,13 @@ with that original clock. Normal play uses silent guest logging.
 ## Validation
 
 - Jetsku-base source build completed with release IPO and int19 PGO.
-- The first five timing/CPU placement checks passed, including hybrid and
-  recorder modes. Repeat after the final pacing and patch-cap changes.
+- All five timing/CPU placement checks passed after the pacing and patch-cap
+  changes (13.99 seconds), including hybrid and recorder modes. Clang-format,
+  PowerShell parsing, Python compilation and git diff whitespace checks passed.
 - Uncapped variable presentation kept the guest clock at approximately 60 Hz
   while Sky Garden completed approximately 34.5 flips/s; user observed slow motion.
 - The guarded setter test reached Sky Garden with its 30 FPS clock retained.
-- The accurate 2560 x 1440 test started with all four requested accuracy features
-  enabled. Its final performance and gameplay timing remain to be checked.
+- The accurate 2560 x 1440 test reached gameplay with all four requested accuracy
+  features enabled. Some scenes fell to approximately 18-26 FPS; source compilation
+  overlapped part of that test, so this is not a controlled resolution benchmark.
+  The user rejected this profile and the delivery defaults restore 1920 x 1080.

@@ -1,7 +1,7 @@
 param(
     [switch]$SkipBuild,
     [switch]$PrepareOnly,
-    [ValidateSet('Preserve','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
+    [ValidateSet('Preserve','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
 )
 $ErrorActionPreference = 'Stop'
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -112,13 +112,14 @@ foreach ($taskFile in $taskFiles) {
 }
 New-Item -ItemType Directory -Path (Split-Path -Parent $taskPatchDestination) -Force | Out-Null
 $taskPatchDocument | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $taskPatchDestination -Encoding UTF8
-if ($GraphicsProfile -eq 'Accurate1440p') {
+if ($GraphicsProfile -ne 'Preserve') {
     $taskIniPath = Join-Path $taskDestination 'Kyty.ini'
     $taskIni = Get-Content -LiteralPath $taskIniPath -Raw
     $taskMatch = [regex]::Match($taskIni, '(?ms)^\[GlobalConfiguration\]\r?\n.*?(?=^\[|\z)')
     if (!$taskMatch.Success) { throw 'GlobalConfiguration was not found in Kyty.ini.' }
     $taskSection = $taskMatch.Value
-    foreach ($taskOption in @{ screen_resolution='R2560X1440'; gpu_occlusion_accurate='true'; readback_linear_images='true'; sync_raw_image_buffers='true'; tessellation_enabled='true' }.GetEnumerator()) {
+    $taskResolution = $(if ($GraphicsProfile -eq 'Accurate1440p') { 'R2560X1440' } else { 'R1920X1080' })
+    foreach ($taskOption in @{ screen_resolution=$taskResolution; gpu_occlusion_accurate='true'; readback_linear_images='true'; sync_raw_image_buffers='true'; tessellation_enabled='true' }.GetEnumerator()) {
         $taskPattern = '(?m)^' + [regex]::Escape($taskOption.Key) + '=[^\r\n]*'
         $taskLine = $taskOption.Key + '=' + $taskOption.Value
         if ([regex]::IsMatch($taskSection, $taskPattern)) {

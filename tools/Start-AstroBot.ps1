@@ -4,8 +4,8 @@ param(
     [ValidateSet('Variable','Fixed')][string]$Timing = 'Variable',
     [ValidateSet('Accurate','Performance')][string]$Graphics = 'Accurate',
     [ValidateSet('30','Original')][string]$Clock = '30',
-    [ValidateRange(640,7680)][int]$Width = 2560,
-    [ValidateRange(480,4320)][int]$Height = 1440
+    [ValidateRange(640,7680)][int]$Width = 1920,
+    [ValidateRange(480,4320)][int]$Height = 1080
 )
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot

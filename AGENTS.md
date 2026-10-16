@@ -16,5 +16,7 @@ Keep the guest vblank frequency at 60 for Astro; lowering it to 30 is not a
 gameplay-speed fix. A presentation cap and hardware VRR are separate facilities.
 The experimental Astro 01.007 patch pairs a guarded 30 FPS engine step with a
 30 FPS presentation cap. Preserve its version/byte checks and keep it opt-out.
-The user requested 2560 x 1440 and accurate graphics on 2026-10-17; use the update
-tool's Accurate1440p profile to apply that explicitly, then preserve their INI.
+The user tested 2560 x 1440 and accurate graphics on 2026-10-17, then rejected the
+1440p output as extra lag without detail. Keep game rendering untouched and use
+Accurate1080p to restore the previous output size with accuracy options retained.
+Subsequent updates should preserve their INI.
