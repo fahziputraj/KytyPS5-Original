@@ -20,6 +20,11 @@ add_executable(launcher WIN32
 )
 
 
+set(KYTY_LOCAL_MSVC_COMPAT_VERSION "" CACHE STRING "Override clang-cl MSVC compatibility for the Qt launcher")
+if(KYTY_CLANG_CL AND KYTY_LOCAL_MSVC_COMPAT_VERSION)
+    target_compile_options(launcher PRIVATE "/clang:-fms-compatibility-version=${KYTY_LOCAL_MSVC_COMPAT_VERSION}")
+endif()
+
 target_link_libraries(launcher Qt6::Concurrent Qt6::Network Qt6::Widgets Vulkan::Headers SDL3::SDL3-static kyty_git_version common)
 if(LINUX)
 	find_package(Qt6 COMPONENTS DBus REQUIRED)

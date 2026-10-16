@@ -1,45 +1,92 @@
-param([switch]$SkipBuild)
+param([switch]$SkipBuild, [switch]$PrepareOnly)
 $ErrorActionPreference = 'Stop'
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $taskDestination = 'F:\KytyPS5-Build'
+$taskBuild = Join-Path $taskRepo '_Build\windows-int19'
+$taskStage = Join-Path $taskRepo '_Build\runtime-int19'
 $taskCmakeBin = 'C:\Users\fahzi\Documents\Codex\2026-10-15\he\work\build-tools-python\cmake\data\bin'
-Push-Location $taskRepo
-try {
-    if (!$SkipBuild) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-windows-local.ps1') -Configure
-        if ($LASTEXITCODE -ne 0) { throw 'Build failed; installed binaries were not updated.' }
-    }
-    & "$taskCmakeBin\ctest.exe" --test-dir _Build/windows --output-on-failure -R '^(resource_tracking|resource_materialization|shader_preload)$'
-    if ($LASTEXITCODE -ne 0) { throw 'Tests failed; installed binaries were not updated.' }
-    $taskActive = Get-Process kyty_emulator,kyty_launcher,launcher,kyty_updater -ErrorAction SilentlyContinue | Where-Object { $_.Path -and [IO.Path]::GetDirectoryName($_.Path) -eq $taskDestination }
-    if ($taskActive) { throw 'Close the applications running from F:\KytyPS5-Build before replacing their binaries.' }
-    & "$taskCmakeBin\cmake.exe" --install _Build/windows --prefix $taskDestination
-    if ($LASTEXITCODE -ne 0) { throw 'Installing the runnable build failed.' }
-    $taskFiles = @('kyty_emulator.exe','kyty_launcher.exe','launcher.exe','kyty_updater.exe','Qt6Core.dll','Qt6Gui.dll','Qt6Widgets.dll','platforms\qwindows.dll','libwinpthread-1.dll')
-    foreach ($taskFile in $taskFiles) {
-        if (!(Test-Path -LiteralPath (Join-Path $taskDestination $taskFile))) { throw "Missing runtime file: $taskFile" }
-    }
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Start-AstroBot.cmd') -Destination $taskDestination -Force
-    Copy-Item -LiteralPath (Join-Path $taskRepo 'docs\LOCAL_WINDOWS_BUILD.md') -Destination (Join-Path $taskDestination 'BUILD-NOTES.md') -Force
-    $taskIniPath = Join-Path $taskDestination 'Kyty.ini'
-    if (!(Test-Path -LiteralPath $taskIniPath)) {
-        $taskIni = [IO.File]::ReadAllText('C:\ProgramData\Kyty\Kyty.ini')
-        foreach ($taskPair in @{ 'amd_cpu_enabled'='false'; 'readback_linear_images'='false'; 'sync_raw_image_buffers'='false'; 'profiler_enabled'='false'; 'vulkan_validation_enabled'='false'; 'shader_validation_enabled'='false'; 'present_mode'='Fifo'; 'vblank_frequency'='60' }.GetEnumerator()) {
-            $taskIni = [regex]::Replace($taskIni, '(?m)^' + $taskPair.Key + '=.*$', $taskPair.Key + '=' + $taskPair.Value)
-        }
-        $taskIni = [regex]::Replace($taskIni, '(?m)^game_dirs=.*$', 'game_dirs="H:/PS5 Games/PPSA21564 [ 01.007 ]-[DLPSGAME.COM]"')
-        [IO.File]::WriteAllText($taskIniPath, $taskIni, (New-Object Text.UTF8Encoding($false)))
-    }
-    $taskManifest = [ordered]@{
-        source = $taskRepo
-        commit = (git rev-parse HEAD)
-        branch = (git branch --show-current)
-        modified = [bool](git status --porcelain)
-        built_at = [DateTimeOffset]::Now.ToString('o')
-        emulator_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskDestination 'kyty_emulator.exe') -Algorithm SHA256).Hash
-    }
-    $taskManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskDestination 'BUILD-INFO.json') -Encoding UTF8
-    Write-Output "Latest runnable build: $taskDestination"
-} finally {
-    Pop-Location
+if (!$SkipBuild) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-windows-local.ps1') -Configure
+    if ($LASTEXITCODE -ne 0) { throw 'Build failed; installed binaries were not updated.' }
 }
+& "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R '^(presentation_timing|cpu_placement.*)$'
+if ($LASTEXITCODE -ne 0) { throw 'Tests failed; installed binaries were not updated.' }
+& "$taskCmakeBin\cmake.exe" --install $taskBuild --prefix $taskStage
+if ($LASTEXITCODE -ne 0) { throw 'Staging the runnable build failed.' }
+# Keep the complete Qt runtime beside the newly built launcher.
+$taskLauncherRuntime = Join-Path $taskBuild 'src\launcher'
+foreach ($taskName in @('Qt6Core.dll','Qt6Gui.dll','Qt6Network.dll','Qt6Widgets.dll','Qt6Svg.dll','icuuc.dll')) {
+    $taskFile = Join-Path $taskLauncherRuntime $taskName
+    if (Test-Path -LiteralPath $taskFile) { Copy-Item -LiteralPath $taskFile -Destination $taskStage -Force }
+}
+foreach ($taskName in @('platforms','tls','imageformats','styles','iconengines','networkinformation')) {
+    $taskFolder = Join-Path $taskLauncherRuntime $taskName
+    if (Test-Path -LiteralPath $taskFolder) { Copy-Item -LiteralPath $taskFolder -Destination $taskStage -Recurse -Force }
+}
+foreach ($taskName in @('Start-AstroBot.cmd','Start-AstroBot.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $taskName) -Destination $taskStage -Force
+}
+Copy-Item -LiteralPath (Join-Path $taskStage 'launcher.exe') -Destination (Join-Path $taskStage 'kyty_launcher.exe') -Force
+$taskPresetPath = Join-Path $taskDestination 'u59-preset.json'
+if (!(Test-Path -LiteralPath $taskPresetPath)) { throw 'The installed int19.1 preset is missing.' }
+$taskPreset = Get-Content -LiteralPath $taskPresetPath -Raw | ConvertFrom-Json
+foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; KYTY_CPU_HYBRID='on'; KYTY_DEFER_PROTECTS='0' }.GetEnumerator()) {
+    $taskPreset | Add-Member -NotePropertyName $taskSetting.Key -NotePropertyValue $taskSetting.Value -Force
+}
+$taskPreset | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'u59-preset.json') -Encoding UTF8
+Copy-Item -LiteralPath (Join-Path $taskRepo 'docs\ASTRO-TIMING.md') -Destination (Join-Path $taskStage 'BUILD-NOTES.md') -Force
+$taskManifest = [ordered]@{
+    distribution = 'Local build based on Jetsku int19.1'
+    source = $taskRepo
+    base_commit = '28bc20f146a276479acf42d2e405fb46a4491b8e'
+    commit = (git -C $taskRepo rev-parse HEAD)
+    branch = (git -C $taskRepo branch --show-current)
+    modified = [bool](git -C $taskRepo status --porcelain)
+    built_at = [DateTimeOffset]::Now.ToString('o')
+    emulator_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'kyty_emulator.exe') -Algorithm SHA256).Hash
+    launcher_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'launcher.exe') -Algorithm SHA256).Hash
+    tests = 'presentation_timing and cpu_placement including hybrid and recorder modes'
+}
+$taskManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'BUILD-INFO.json') -Encoding UTF8
+foreach ($taskName in @('kyty_emulator.exe','launcher.exe','kyty_launcher.exe','libwinpthread-1.dll','Qt6Core.dll','Qt6Widgets.dll','platforms\qwindows.dll','u59-preset.json','Start-AstroBot.ps1')) {
+    if (!(Test-Path -LiteralPath (Join-Path $taskStage $taskName))) { throw "Staging is incomplete: $taskName" }
+}
+if ($PrepareOnly) { Write-Output "Runtime prepared for verification: $taskStage"; return }
+$taskActive = Get-Process kyty_emulator,kyty_launcher,launcher -ErrorAction SilentlyContinue | Where-Object { $_.Path -and [IO.Path]::GetDirectoryName($_.Path) -eq $taskDestination }
+if ($taskActive) { throw 'Close the applications running from F:\KytyPS5-Build before replacing their binaries.' }
+$taskBackup = Join-Path 'F:\KytyPS5-Build-Backups' ([DateTime]::Now.ToString('yyyyMMdd-HHmmss') + '-before-realtime-pacing')
+New-Item -ItemType Directory -Path $taskBackup | Out-Null
+$taskStageRoot = [IO.Path]::GetFullPath($taskStage).TrimEnd('\') + '\'
+$taskFiles = Get-ChildItem -LiteralPath $taskStage -File -Recurse
+# Only staged runtime files are overwritten. No cache, save or INI files are in this stage.
+foreach ($taskFile in $taskFiles) {
+    $taskRelative = $taskFile.FullName.Substring($taskStageRoot.Length)
+    if ($taskRelative -match '^(_|Kyty\.ini$)') { throw "Unexpected user data in runtime stage: $taskRelative" }
+    $taskInstalled = Join-Path $taskDestination $taskRelative
+    if (Test-Path -LiteralPath $taskInstalled) {
+        $taskSaved = Join-Path $taskBackup $taskRelative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $taskSaved) -Force | Out-Null
+        Copy-Item -LiteralPath $taskInstalled -Destination $taskSaved -Force
+    }
+}
+Copy-Item -LiteralPath (Join-Path $taskDestination 'Kyty.ini') -Destination $taskBackup -ErrorAction SilentlyContinue
+$taskSaveRoot = Join-Path $taskDestination '_SaveData'
+$taskSaveHashes = @{}
+if (Test-Path -LiteralPath $taskSaveRoot) {
+    Get-ChildItem -LiteralPath $taskSaveRoot -File -Recurse | ForEach-Object {
+        $taskSaveHashes[$_.FullName] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+    }
+    Copy-Item -LiteralPath $taskSaveRoot -Destination $taskBackup -Recurse
+}
+foreach ($taskFile in $taskFiles) {
+    $taskInstalled = Join-Path $taskDestination $taskFile.FullName.Substring($taskStageRoot.Length)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $taskInstalled) -Force | Out-Null
+    Copy-Item -LiteralPath $taskFile.FullName -Destination $taskInstalled -Force
+}
+foreach ($taskSave in $taskSaveHashes.GetEnumerator()) {
+    if ((Get-FileHash -LiteralPath $taskSave.Key -Algorithm SHA256).Hash -ne $taskSave.Value) { throw "Save changed during deployment: $($taskSave.Key)" }
+}
+$taskManifest['backup'] = $taskBackup
+$taskManifest['save_files_verified_unchanged_at_install'] = $taskSaveHashes.Count
+$taskManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskDestination 'BUILD-INFO.json') -Encoding UTF8
+Write-Output "Latest runnable build: $taskDestination; previous runtime: $taskBackup"

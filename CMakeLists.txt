@@ -671,6 +671,10 @@ endif()
 
 # KYTY_CPU_RESERVE (common/cpuPlacement.h): layout choice, live placement on this machine (Windows),
 # and --bench (off against cp in child processes).
+add_executable(presentation_timing_tests EXCLUDE_FROM_ALL
+    "${KYTY_TESTS_DIR}/PresentationTimingTests.cpp")
+target_include_directories(presentation_timing_tests PRIVATE ${inc_headers})
+
 add_executable(cpu_placement_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/CpuPlacementTests.cpp"
 )
@@ -1173,8 +1177,11 @@ if(BUILD_TESTING)
 	add_test(NAME hang_watchdog_fatal_shutdown COMMAND $<TARGET_FILE:hang_watchdog_tests> --fatal-shutdown)
 	set_tests_properties(hang_watchdog_fire hang_watchdog_fatal_shutdown PROPERTIES TIMEOUT 15)
 	add_test(NAME profiler_counters COMMAND $<TARGET_FILE:profiler_counter_tests>)
+	add_test(NAME presentation_timing COMMAND $<TARGET_FILE:presentation_timing_tests>)
 	add_test(NAME cpu_placement COMMAND $<TARGET_FILE:cpu_placement_tests>)
 	add_test(NAME cpu_placement_recorder COMMAND $<TARGET_FILE:cpu_placement_tests> --mode cp+recorder)
+	add_test(NAME cpu_placement_hybrid COMMAND $<TARGET_FILE:cpu_placement_tests> --hybrid)
+	add_test(NAME cpu_placement_hybrid_recorder COMMAND $<TARGET_FILE:cpu_placement_tests> --mode cp+recorder --hybrid)
 	add_test(NAME live_switch COMMAND $<TARGET_FILE:live_switch_tests>)
 	add_test(NAME lod_stats_report COMMAND $<TARGET_FILE:lod_stats_report_tests>)
 	add_test(NAME game_patch_filter COMMAND $<TARGET_FILE:game_patch_filter_tests>)

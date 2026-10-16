@@ -1,4 +1,8 @@
-param([switch]$LogOutput)
+param(
+    [switch]$LogOutput,
+    [ValidateRange(0,60)][int]$Fps = 0,
+    [ValidateSet('Variable','Fixed')][string]$Timing = 'Variable'
+)
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 $taskPresetPath = Join-Path $PSScriptRoot 'u59-preset.json'
@@ -10,6 +14,8 @@ $taskPreset = Get-Content -LiteralPath $taskPresetPath -Raw | ConvertFrom-Json
 foreach ($taskSetting in $taskPreset.PSObject.Properties) {
     [Environment]::SetEnvironmentVariable($taskSetting.Name, [string]$taskSetting.Value, 'Process')
 }
+$env:KYTY_PRESENT_WHEN_READY = $(if ($Timing -eq 'Variable') { '1' } else { '0' })
+$env:KYTY_PRESENT_FPS = [string]$Fps
 $taskGame = 'H:\PS5 Games\PPSA21564-app'
 if (!(Test-Path -LiteralPath (Join-Path $taskGame 'eboot.bin'))) {
     $taskGame = 'H:\PS5 Games\PPSA21564 [ 01.007 ]-[DLPSGAME.COM]\PPSA21564-app'
