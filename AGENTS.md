@@ -5,8 +5,16 @@ Replace the binaries in that directory on each update. Preserve existing setting
 shader/pipeline caches, and save data. Use `tools/update-build.ps1` to build, test,
 and stage source-build updates in that location.
 
-The user subsequently selected Jetsku U59 int19.1 as the active runnable distribution:
+The user selected Jetsku U59 int19.1 as the source base and subsequently requested
+rebasing local work onto it and fixing CPU load / slow motion with variable FPS:
 https://github.com/Jetsku/KytyPS5/releases/tag/u59-windows-20261013-int19.1
-Preserve that release deployment unless the user requests another distribution or
-a source-built replacement. See docs/JETSKU_RELEASE_INSTALL.md and BUILD-INFO.json
-in the installed directory for the active binaries, preset and backup.
+Use that exact release tag as the base. The previous official-base experiments
+are preserved on `codex/backup-pre-jetsku-20261017`. Do not replay the old shader
+cache replacement over Jetsku's cache. See `docs/ASTRO-TIMING.md` for the current
+timing changes, local PGO build/junction handling, validation and delivery.
+Keep the guest vblank frequency at 60 for Astro; lowering it to 30 is not a
+gameplay-speed fix. A presentation cap and hardware VRR are separate facilities.
+The experimental Astro 01.007 patch pairs a guarded 30 FPS engine step with a
+30 FPS presentation cap. Preserve its version/byte checks and keep it opt-out.
+The user requested 2560 x 1440 and accurate graphics on 2026-10-17; use the update
+tool's Accurate1440p profile to apply that explicitly, then preserve their INI.

@@ -1,7 +1,11 @@
 param(
     [switch]$LogOutput,
-    [ValidateRange(0,60)][int]$Fps = 0,
-    [ValidateSet('Variable','Fixed')][string]$Timing = 'Variable'
+    [ValidateRange(0,60)][int]$Fps = 30,
+    [ValidateSet('Variable','Fixed')][string]$Timing = 'Variable',
+    [ValidateSet('Accurate','Performance')][string]$Graphics = 'Accurate',
+    [ValidateSet('30','Original')][string]$Clock = '30',
+    [ValidateRange(640,7680)][int]$Width = 2560,
+    [ValidateRange(480,4320)][int]$Height = 1440
 )
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
@@ -21,12 +25,22 @@ if (!(Test-Path -LiteralPath (Join-Path $taskGame 'eboot.bin'))) {
     $taskGame = 'H:\PS5 Games\PPSA21564 [ 01.007 ]-[DLPSGAME.COM]\PPSA21564-app'
 }
 if (!(Test-Path -LiteralPath (Join-Path $taskGame 'eboot.bin'))) { throw 'Astro Bot game folder is unavailable.' }
+$taskPatchPath = Join-Path $PSScriptRoot '_Patches\PPSA21564.json'
+if ($Clock -eq '30') {
+    if ($Timing -ne 'Variable' -or $Fps -ne 30) { throw 'The 30 FPS clock patch requires Variable timing and a 30 FPS cap.' }
+    if (!(Test-Path -LiteralPath $taskPatchPath)) { throw 'The Astro 30 FPS clock patch is missing.' }
+    $taskPatch = Get-Content -LiteralPath $taskPatchPath -Raw | ConvertFrom-Json
+    $taskGameHash = (Get-FileHash -LiteralPath (Join-Path $taskGame 'eboot.bin') -Algorithm SHA256).Hash
+    if ($taskGameHash -ne $taskPatch.source_sha256) { throw 'The Astro clock patch supports only the verified 01.007.000 executable.' }
+}
+$taskAccurate = $Graphics -eq 'Accurate'
 $taskArgs = @('--game', $taskGame, '--redzone', '--amd-cpu', '--gpu', '0',
-    '--screen-width', '1920', '--screen-height', '1080', '--present-mode', 'Fifo',
-    '--vblank-frequency', '60', '--gpu-occlusion', 'off', '--tessellation',
+    '--screen-width', [string]$Width, '--screen-height', [string]$Height, '--present-mode', 'Fifo',
+    '--vblank-frequency', '60', '--gpu-occlusion', $(if ($taskAccurate) { 'on' } else { 'off' }), '--tessellation',
     '--shader-log-direction', 'Silent', '--shader-validation', 'false',
-    '--vulkan-validation', 'false', '--readback-linear-images', 'false',
-    '--sync-raw-image-buffers', 'false', '--printf-direction', $(if ($LogOutput) { 'File' } else { 'Silent' }))
+    '--vulkan-validation', 'false', '--readback-linear-images', $taskAccurate.ToString().ToLowerInvariant(),
+    '--sync-raw-image-buffers', $taskAccurate.ToString().ToLowerInvariant(), '--printf-direction', $(if ($LogOutput) { 'File' } else { 'Silent' }))
+if ($Clock -eq '30') { $taskArgs += @('--game-patch', $taskPatchPath) }
 if ($LogOutput) { $taskArgs += @('--printf-output-file', '_kyty.txt') }
 & (Join-Path $PSScriptRoot 'kyty_emulator.exe') @taskArgs
 exit $LASTEXITCODE

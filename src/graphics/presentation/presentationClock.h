@@ -43,19 +43,40 @@ private:
 
 // A presentation limit changes only when a completed frame can be displayed.
 // It does not scale the guest's monotonic clock or lower its vblank frequency.
+[[nodiscard]] inline uint64_t PresentationSpacing(uint64_t frequency, uint32_t refresh,
+                                                  uint32_t interval, uint32_t fps_limit = 0) {
+	auto spacing =
+	    (frequency * std::max(interval, 1u) + std::max(refresh, 1u) - 1) / std::max(refresh, 1u);
+	if (fps_limit != 0) {
+		spacing = std::max(spacing, (frequency + fps_limit - 1) / fps_limit);
+	}
+	return spacing;
+}
+
 [[nodiscard]] inline uint64_t PresentationDelay(uint64_t now, uint64_t previous, uint64_t frequency,
                                                 uint32_t refresh, uint32_t interval,
                                                 uint32_t fps_limit = 0) {
 	if (previous == 0) {
 		return 0;
 	}
-	auto spacing =
-	    (frequency * std::max(interval, 1u) + std::max(refresh, 1u) - 1) / std::max(refresh, 1u);
-	if (fps_limit != 0) {
-		spacing = std::max(spacing, (frequency + fps_limit - 1) / fps_limit);
-	}
-	const auto deadline = previous + spacing;
+	const auto deadline = previous + PresentationSpacing(frequency, refresh, interval, fps_limit);
 	return now >= deadline ? 0 : deadline - now;
+}
+
+// Keep the nominal deadline after a small scheduler overshoot, so each wake-up
+// does not permanently add another millisecond to a 30 FPS frame period. A late
+// CPU/GPU frame rebases the schedule instead of allowing a burst to catch up.
+[[nodiscard]] inline uint64_t PresentationOrigin(uint64_t now, uint64_t previous,
+                                                 uint64_t frequency, uint32_t refresh,
+                                                 uint32_t interval, uint32_t fps_limit = 0) {
+	if (previous != 0) {
+		const auto deadline =
+		    previous + PresentationSpacing(frequency, refresh, interval, fps_limit);
+		if (now >= deadline && now - deadline <= frequency / 500) {
+			return deadline;
+		}
+	}
+	return now;
 }
 
 } // namespace Libs::VideoOut

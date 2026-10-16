@@ -1,4 +1,8 @@
-param([switch]$SkipBuild, [switch]$PrepareOnly)
+param(
+    [switch]$SkipBuild,
+    [switch]$PrepareOnly,
+    [ValidateSet('Preserve','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
+)
 $ErrorActionPreference = 'Stop'
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $taskDestination = 'F:\KytyPS5-Build'
@@ -14,7 +18,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Tests failed; installed binaries were not upda
 & "$taskCmakeBin\cmake.exe" --install $taskBuild --prefix $taskStage
 if ($LASTEXITCODE -ne 0) { throw 'Staging the runnable build failed.' }
 # Keep the complete Qt runtime beside the newly built launcher.
-$taskLauncherRuntime = Join-Path $taskBuild 'src\launcher'
+$taskLauncherRuntime = Join-Path $taskBuild 'launcher'
 foreach ($taskName in @('Qt6Core.dll','Qt6Gui.dll','Qt6Network.dll','Qt6Widgets.dll','Qt6Svg.dll','icuuc.dll')) {
     $taskFile = Join-Path $taskLauncherRuntime $taskName
     if (Test-Path -LiteralPath $taskFile) { Copy-Item -LiteralPath $taskFile -Destination $taskStage -Force }
@@ -27,10 +31,13 @@ foreach ($taskName in @('Start-AstroBot.cmd','Start-AstroBot.ps1')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $taskName) -Destination $taskStage -Force
 }
 Copy-Item -LiteralPath (Join-Path $taskStage 'launcher.exe') -Destination (Join-Path $taskStage 'kyty_launcher.exe') -Force
+$taskBundledPatch = 'patches\PPSA21564-01.007-clock30.json'
+New-Item -ItemType Directory -Path (Join-Path $taskStage 'patches') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $taskRepo $taskBundledPatch) -Destination (Join-Path $taskStage $taskBundledPatch) -Force
 $taskPresetPath = Join-Path $taskDestination 'u59-preset.json'
 if (!(Test-Path -LiteralPath $taskPresetPath)) { throw 'The installed int19.1 preset is missing.' }
 $taskPreset = Get-Content -LiteralPath $taskPresetPath -Raw | ConvertFrom-Json
-foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; KYTY_CPU_HYBRID='on'; KYTY_DEFER_PROTECTS='0' }.GetEnumerator()) {
+foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; KYTY_CPU_HYBRID='off'; KYTY_DEFER_PROTECTS='0' }.GetEnumerator()) {
     $taskPreset | Add-Member -NotePropertyName $taskSetting.Key -NotePropertyValue $taskSetting.Value -Force
 }
 $taskPreset | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'u59-preset.json') -Encoding UTF8
@@ -46,14 +53,30 @@ $taskManifest = [ordered]@{
     emulator_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'kyty_emulator.exe') -Algorithm SHA256).Hash
     launcher_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'launcher.exe') -Algorithm SHA256).Hash
     tests = 'presentation_timing and cpu_placement including hybrid and recorder modes'
+    astro_clock = '01.007.000 guarded 30 FPS step; experimental, not variable simulation'
+    graphics_profile = $GraphicsProfile
 }
 $taskManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'BUILD-INFO.json') -Encoding UTF8
-foreach ($taskName in @('kyty_emulator.exe','launcher.exe','kyty_launcher.exe','libwinpthread-1.dll','Qt6Core.dll','Qt6Widgets.dll','platforms\qwindows.dll','u59-preset.json','Start-AstroBot.ps1')) {
+foreach ($taskName in @('kyty_emulator.exe','launcher.exe','kyty_launcher.exe','libwinpthread-1.dll','Qt6Core.dll','Qt6Widgets.dll','platforms\qwindows.dll','u59-preset.json','Start-AstroBot.ps1',$taskBundledPatch)) {
     if (!(Test-Path -LiteralPath (Join-Path $taskStage $taskName))) { throw "Staging is incomplete: $taskName" }
 }
 if ($PrepareOnly) { Write-Output "Runtime prepared for verification: $taskStage"; return }
 $taskActive = Get-Process kyty_emulator,kyty_launcher,launcher -ErrorAction SilentlyContinue | Where-Object { $_.Path -and [IO.Path]::GetDirectoryName($_.Path) -eq $taskDestination }
 if ($taskActive) { throw 'Close the applications running from F:\KytyPS5-Build before replacing their binaries.' }
+$taskPatchDestination = Join-Path $taskDestination '_Patches\PPSA21564.json'
+$taskPatchDocument = Get-Content -LiteralPath (Join-Path $taskStage $taskBundledPatch) -Raw | ConvertFrom-Json
+if (Test-Path -LiteralPath $taskPatchDestination) {
+    $taskExisting = Get-Content -LiteralPath $taskPatchDestination -Raw | ConvertFrom-Json
+    if ($taskExisting.id -ne $taskPatchDocument.id -or $taskExisting.version -ne $taskPatchDocument.version -or $taskExisting.process -ne $taskPatchDocument.process) {
+        throw 'An Astro patch for a different version is installed; refusing to overwrite it.'
+    }
+    $taskClockMod = $taskPatchDocument.mods[0]
+    $taskPreviousClock = @($taskExisting.mods | Where-Object { $_.id -eq $taskClockMod.id })
+    if ($taskPreviousClock.Count -eq 1) { $taskClockMod.enabled = $taskPreviousClock[0].enabled }
+    $taskExisting.mods = @($taskExisting.mods | Where-Object { $_.id -ne $taskClockMod.id }) + @($taskClockMod)
+    $taskExisting | Add-Member -NotePropertyName source_sha256 -NotePropertyValue $taskPatchDocument.source_sha256 -Force
+    $taskPatchDocument = $taskExisting
+}
 $taskBackup = Join-Path 'F:\KytyPS5-Build-Backups' ([DateTime]::Now.ToString('yyyyMMdd-HHmmss') + '-before-realtime-pacing')
 New-Item -ItemType Directory -Path $taskBackup | Out-Null
 $taskStageRoot = [IO.Path]::GetFullPath($taskStage).TrimEnd('\') + '\'
@@ -70,6 +93,10 @@ foreach ($taskFile in $taskFiles) {
     }
 }
 Copy-Item -LiteralPath (Join-Path $taskDestination 'Kyty.ini') -Destination $taskBackup -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $taskPatchDestination) {
+    New-Item -ItemType Directory -Path (Join-Path $taskBackup '_Patches') -Force | Out-Null
+    Copy-Item -LiteralPath $taskPatchDestination -Destination (Join-Path $taskBackup '_Patches\PPSA21564.json')
+}
 $taskSaveRoot = Join-Path $taskDestination '_SaveData'
 $taskSaveHashes = @{}
 if (Test-Path -LiteralPath $taskSaveRoot) {
@@ -82,6 +109,26 @@ foreach ($taskFile in $taskFiles) {
     $taskInstalled = Join-Path $taskDestination $taskFile.FullName.Substring($taskStageRoot.Length)
     New-Item -ItemType Directory -Path (Split-Path -Parent $taskInstalled) -Force | Out-Null
     Copy-Item -LiteralPath $taskFile.FullName -Destination $taskInstalled -Force
+}
+New-Item -ItemType Directory -Path (Split-Path -Parent $taskPatchDestination) -Force | Out-Null
+$taskPatchDocument | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $taskPatchDestination -Encoding UTF8
+if ($GraphicsProfile -eq 'Accurate1440p') {
+    $taskIniPath = Join-Path $taskDestination 'Kyty.ini'
+    $taskIni = Get-Content -LiteralPath $taskIniPath -Raw
+    $taskMatch = [regex]::Match($taskIni, '(?ms)^\[GlobalConfiguration\]\r?\n.*?(?=^\[|\z)')
+    if (!$taskMatch.Success) { throw 'GlobalConfiguration was not found in Kyty.ini.' }
+    $taskSection = $taskMatch.Value
+    foreach ($taskOption in @{ screen_resolution='R2560X1440'; gpu_occlusion_accurate='true'; readback_linear_images='true'; sync_raw_image_buffers='true'; tessellation_enabled='true' }.GetEnumerator()) {
+        $taskPattern = '(?m)^' + [regex]::Escape($taskOption.Key) + '=[^\r\n]*'
+        $taskLine = $taskOption.Key + '=' + $taskOption.Value
+        if ([regex]::IsMatch($taskSection, $taskPattern)) {
+            $taskSection = [regex]::Replace($taskSection, $taskPattern, $taskLine)
+        } else {
+            $taskSection = $taskSection.TrimEnd() + "`r`n$taskLine`r`n`r`n"
+        }
+    }
+    $taskIni = $taskIni.Substring(0, $taskMatch.Index) + $taskSection + $taskIni.Substring($taskMatch.Index + $taskMatch.Length)
+    [IO.File]::WriteAllText($taskIniPath, $taskIni, [Text.UTF8Encoding]::new($false))
 }
 foreach ($taskSave in $taskSaveHashes.GetEnumerator()) {
     if ((Get-FileHash -LiteralPath $taskSave.Key -Algorithm SHA256).Hash -ne $taskSave.Value) { throw "Save changed during deployment: $($taskSave.Key)" }

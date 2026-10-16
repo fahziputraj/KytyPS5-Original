@@ -27,6 +27,7 @@
 #include "kernel/pthread.h"
 #include "libs/errno.h"
 #include "libs/libs.h"
+#include "loader/gamePatch.h"
 #include "loader/systemContent.h"
 
 #include <algorithm>
@@ -93,7 +94,8 @@ static uint32_t PresentationFpsLimit() {
 		           ? 0u
 		           : static_cast<uint32_t>(std::clamp(std::strtol(value, nullptr, 10), 0L, 240L));
 	}();
-	return limit;
+	const auto patched_limit = Loader::GamePatch::PresentationFpsLimit();
+	return patched_limit != 0 ? patched_limit : limit;
 }
 
 // Opt-in variable presentation. The guest clock always retains the configured
@@ -1486,7 +1488,13 @@ bool FlipQueue::Flip(uint32_t micros, bool when_ready, uint32_t* retry_us) {
 			it = m_requests.erase(it);
 			continue;
 		}
-		r.cfg->last_flip_qpc = flip_qpc;
+		r.cfg->last_flip_qpc = when_ready
+		                           ? PresentationOrigin(flip_qpc, r.cfg->last_flip_qpc,
+		                                                Common::Timer::QueryPerformanceFrequency(),
+		                                                Config::GetVblankFrequency(),
+		                                                static_cast<uint32_t>(r.cfg->flip_rate + 1),
+		                                                PresentationFpsLimit())
+		                           : flip_qpc;
 		r.cfg->flip_status.count++;
 		r.cfg->flip_status.processTime              = LibKernel::KernelGetProcessTime();
 		r.cfg->flip_status.processTimeCounter       = LibKernel::KernelGetProcessTimeCounter();

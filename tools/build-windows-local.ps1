@@ -72,3 +72,4 @@ try {
         if ($taskPreviousTarget) { New-Item -ItemType Junction -Path $taskSourceLink -Target $taskPreviousTarget | Out-Null }
     }
 }
+exit 0
