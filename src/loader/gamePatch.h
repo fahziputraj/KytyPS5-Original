@@ -17,6 +17,7 @@ bool Apply(const std::filesystem::path& plan_path, Program* main_program,
 bool ApplyPending(Program* program);
 // A verified, enabled timing patch may pair its simulation step with a host cap.
 uint32_t PresentationFpsLimit();
+void     OnPresentedFrame(uint64_t now, uint64_t frequency);
 void     Clear();
 
 } // namespace GamePatch

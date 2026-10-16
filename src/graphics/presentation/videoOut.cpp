@@ -1469,6 +1469,13 @@ bool FlipQueue::Flip(uint32_t micros, bool when_ready, uint32_t* retry_us) {
 		for (size_t i = 0; i < count; i++) {
 			requests[i].cfg->mutex.Lock();
 		}
+		if (std::any_of(requests.begin(), requests.begin() + count,
+		                [](const Request& r) { return r.cfg->bus == VIDEO_OUT_BUS_TYPE_MAIN; })) {
+			// Update a verified title-specific timestep before the flip completion
+			// event releases the next guest frame. Overlay flips do not advance it.
+			Loader::GamePatch::OnPresentedFrame(Common::Timer::QueryPerformanceCounter(),
+			                                    Common::Timer::QueryPerformanceFrequency());
+		}
 	}
 
 	m_mutex.Lock();

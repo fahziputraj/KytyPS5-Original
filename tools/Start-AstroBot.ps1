@@ -1,9 +1,9 @@
 param(
     [switch]$LogOutput,
-    [ValidateRange(0,60)][int]$Fps = 30,
+    [ValidateRange(0,60)][int]$Fps = 0,
     [ValidateSet('Variable','Fixed')][string]$Timing = 'Variable',
-    [ValidateSet('Accurate','Performance')][string]$Graphics = 'Accurate',
-    [ValidateSet('30','Original')][string]$Clock = '30',
+    [ValidateSet('Accurate','Performance')][string]$Graphics = 'Performance',
+    [ValidateSet('30','Original')][string]$Clock = 'Original',
     [ValidateRange(640,7680)][int]$Width = 1920,
     [ValidateRange(480,4320)][int]$Height = 1080
 )

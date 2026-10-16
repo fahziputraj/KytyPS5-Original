@@ -8,6 +8,7 @@
 #include "loader/elf.h"
 #include "loader/gamePatchFilter.h"
 #include "loader/runtimeLinker.h"
+#include "loader/simulationClock.h"
 #include "loader/systemContent.h"
 
 #include <algorithm>
@@ -17,7 +18,9 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,6 +46,7 @@ struct Plan {
 	std::vector<std::string> mod_names;
 	std::vector<uint64_t>    cave_pages;
 	uint32_t                 presentation_fps = 0;
+	std::optional<uint64_t>  simulation_clock;
 };
 
 using Json = nlohmann::json;
@@ -50,6 +54,11 @@ using Json = nlohmann::json;
 std::unique_ptr<Plan> g_pending_plan;
 std::vector<uint64_t> g_applied_cave_pages;
 std::atomic<uint32_t> g_presentation_fps {0};
+std::atomic<bool>     g_simulation_active {false};
+std::mutex            g_simulation_mutex;
+uint64_t              g_simulation_address  = 0;
+uint64_t              g_simulation_previous = 0;
+SimulationClock       g_simulation_clock;
 
 bool Fail(std::string* error, std::string message) {
 	*error = std::move(message);
@@ -122,6 +131,13 @@ bool LoadPlan(const std::filesystem::path& path, Plan* plan, std::string* error)
 			continue;
 		}
 		const auto name = mod["name"].get<std::string>();
+		if (mod.contains("simulation_clock")) {
+			if (plan->simulation_clock.has_value() || !mod["simulation_clock"].is_string()) {
+				return Fail(error, "invalid or conflicting simulation clock");
+			}
+			plan->simulation_clock =
+			    std::stoull(mod["simulation_clock"].get<std::string>(), nullptr, 16);
+		}
 		if (mod.contains("presentation_fps")) {
 			const auto& fps = mod["presentation_fps"];
 			if (!fps.is_number_unsigned() || fps.get<uint64_t>() == 0 ||
@@ -141,6 +157,21 @@ bool LoadPlan(const std::filesystem::path& path, Plan* plan, std::string* error)
 				return Fail(error, "invalid mod memory bytes");
 			}
 			plan->writes.push_back(std::move(write));
+		}
+	}
+	if (plan->simulation_clock.has_value()) {
+		const auto address = *plan->simulation_clock;
+		const auto guarded =
+		    std::any_of(plan->writes.begin(), plan->writes.end(), [&](const Write& write) {
+			    return address % 8 == 0 && address >= write.source_address &&
+			           address - write.source_address <= write.off.size() &&
+			           write.off.size() - (address - write.source_address) >= 24 &&
+			           std::any_of(write.off.begin(), write.off.end(),
+			                       [](uint8_t byte) { return byte != 0; });
+		    });
+		if (!guarded || plan->presentation_fps != 60) {
+			return Fail(error,
+			            "simulation clock requires a guarded 24-byte block and a 60 FPS limit");
 		}
 	}
 	return true;
@@ -348,6 +379,14 @@ bool ApplyPending(Program* program) {
 	for (const auto& name: g_pending_plan->mod_names) {
 		::printf("Successfully applied cheat: %s\n", name.c_str());
 	}
+	if (g_pending_plan->simulation_clock.has_value()) {
+		std::lock_guard lock(g_simulation_mutex);
+		Translate(*program, source_base, *g_pending_plan->simulation_clock, &g_simulation_address);
+		g_simulation_previous = 0;
+		g_simulation_clock.Reset();
+		g_simulation_active.store(true, std::memory_order_release);
+		::printf("Game simulation clock: adaptive 60-to-30 FPS timestep enabled\n");
+	}
 	if (g_pending_plan->presentation_fps != 0) {
 		g_presentation_fps.store(g_pending_plan->presentation_fps, std::memory_order_relaxed);
 		::printf("Game patch: paired presentation limit %u FPS\n",
@@ -362,7 +401,36 @@ uint32_t PresentationFpsLimit() {
 	return g_presentation_fps.load(std::memory_order_relaxed);
 }
 
+void OnPresentedFrame(uint64_t now, uint64_t frequency) {
+	if (!g_simulation_active.load(std::memory_order_acquire)) {
+		return;
+	}
+	std::lock_guard lock(g_simulation_mutex);
+	if (g_simulation_address == 0 || frequency == 0) {
+		return;
+	}
+	const double elapsed        = g_simulation_previous != 0 && now > g_simulation_previous
+	                                  ? static_cast<double>(now - g_simulation_previous) / frequency
+	                                  : 0.0;
+	g_simulation_previous       = now;
+	const auto     step         = g_simulation_clock.Advance(elapsed);
+	const double   rate         = 1.0 / step;
+	const float    seconds      = static_cast<float>(step);
+	const uint64_t microseconds = static_cast<uint64_t>(step * 1'000'000.0);
+	std::memcpy(reinterpret_cast<void*>(g_simulation_address), &rate, sizeof(rate));
+	std::memcpy(reinterpret_cast<void*>(g_simulation_address + 8), &seconds, sizeof(seconds));
+	std::memcpy(reinterpret_cast<void*>(g_simulation_address + 16), &microseconds,
+	            sizeof(microseconds));
+}
+
 void Clear() {
+	{
+		std::lock_guard lock(g_simulation_mutex);
+		g_simulation_active.store(false, std::memory_order_release);
+		g_simulation_address  = 0;
+		g_simulation_previous = 0;
+		g_simulation_clock.Reset();
+	}
 	g_presentation_fps.store(0, std::memory_order_relaxed);
 	if (g_pending_plan != nullptr) {
 		ReleaseCaves(&g_pending_plan->cave_pages);

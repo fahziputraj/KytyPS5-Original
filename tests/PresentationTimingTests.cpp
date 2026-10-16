@@ -1,6 +1,9 @@
 #include "graphics/presentation/presentationClock.h"
+#include "loader/simulationClock.h"
 
+#include <cmath>
 #include <cstdio>
+#include <limits>
 
 int main() {
 	using namespace Libs::VideoOut;
@@ -52,5 +55,29 @@ int main() {
 	      "the frame after a stall still gets a full presentation period");
 	check(PresentationOrigin(0, 0, frequency, 60, 1, 30) == 0,
 	      "first presentation has no artificial deadline");
+	Loader::GamePatch::SimulationClock simulation;
+	check(simulation.Advance(0) == simulation.Nominal, "first simulation step is sixty Hz");
+	double simulated = 0.0;
+	double elapsed   = 0.0;
+	double step      = simulation.Nominal;
+	for (unsigned frame = 0; frame < 1500; frame++) {
+		const double duration = frame < 300 ? 1.0 / 60.0 : frame < 900 ? 1.0 / 30.0 : 1.0 / 45.0;
+		simulated += step;
+		elapsed += duration;
+		step = simulation.Advance(duration);
+		check(step >= simulation.Nominal && step <= simulation.Longest,
+		      "adaptive steps stay inside the tested physics range");
+	}
+	check(std::abs(simulated - elapsed) < 0.1,
+	      "60-to-30-to-45 FPS requested game time follows wall time");
+	check(simulation.Advance(2.0) == simulation.Nominal,
+	      "a loading stall resets timing without catch-up debt");
+	check(simulation.Advance(std::numeric_limits<double>::quiet_NaN()) == simulation.Nominal,
+	      "invalid duration cannot poison the game clock");
+	for (unsigned frame = 0; frame < 300; frame++) {
+		step = simulation.Advance(1.0 / 18.0);
+	}
+	check(step == simulation.Longest,
+	      "sub-thirty performance cannot inject an unsafe unbounded physics step");
 	return failures == 0 ? 0 : 1;
 }
