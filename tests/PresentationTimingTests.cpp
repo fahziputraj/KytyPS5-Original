@@ -66,7 +66,7 @@ int main() {
 		elapsed += duration;
 		step = simulation.Advance(duration);
 		check(step >= simulation.Nominal && step <= simulation.Longest,
-		      "adaptive steps stay inside the tested physics range");
+		      "adaptive steps stay inside the configured timestep range");
 	}
 	check(std::abs(simulated - elapsed) < 0.1,
 	      "60-to-30-to-45 FPS requested game time follows wall time");

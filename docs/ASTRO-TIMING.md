@@ -1,5 +1,40 @@
 # Astro Bot: 30 FPS timing and accurate graphics
 
+## Current selection (2026-10-17)
+
+The user requested returning to the earlier fixed 30 FPS profile after rejecting
+the accurate graphics / uncapped comparison: 1920 x 1080 output, tessellation on,
+accurate GPU occlusion off, linear-image readback off and raw-image synchronization
+off. Keep the guarded 30 FPS engine patch and variable presentation at 60 Hz guest
+vblank. `Start-AstroBot.ps1` defaults to this performance profile.
+
+`KYTY_CPU_HYBRID=on` puts critical graphics helper threads on the available P-cores;
+CP reservation keeps its own P-core, and background compiles use E-cores. This is
+not a process-wide exclusion of E-cores. `KYTY_WRITE_RANGE_STATS=0` removes the
+extra image-overlap query used only to count images spared by a proven write range;
+it does not change the write range or synchronization itself. A guaranteed FPS
+improvement from CPU placement has not been demonstrated in a controlled scene.
+
+The user subsequently requested adaptive FPS with maintained game pace. The
+experiment remains on `codex/astro-adaptive-clock-experiment`, with a separate
+`Start-AstroBot-Adaptive.cmd` entry point. The normal entry point retains the
+fixed 30 FPS profile. Both modes retain the same graphics and P-core settings.
+
+The adaptive patch is specific to the verified Astro 01.007 executable. Before
+main-output flip completion releases the guest, it updates the same guarded
+rate, seconds-per-step and microseconds-per-step values from monotonic elapsed
+frame time. An averaging controller repays small timing discrepancies gradually.
+The step remains between 1/60 and 1/30 second, with a 60 FPS presentation ceiling;
+loading gaps above 250 ms reset the controller rather than building catch-up debt.
+Below 30 FPS it can still slow down. Unit tests confirm the controller's time
+accounting, not correct physics or animation in the game. Treat maintained pace
+as unverified until walking, jumps and moving platforms are compared in gameplay.
+This is not hardware VRR configuration or a generic fix for other games.
+
+Adaptive launch uses its bundled patch independently of the installed patch list.
+The normal launcher and `Start-AstroBot.cmd` retain the installed 30 FPS patch.
+The notes below retain the preceding investigation and rejected settings.
+
 The base is Jetsku's exact `u59-windows-20261013-int19.1` tag, commit
 `28bc20f146a276479acf42d2e405fb46a4491b8e`. Local delivery tools were rebased onto
 it. The earlier official-base crash/preload experiments are preserved on
@@ -77,9 +112,9 @@ suggested the three-value clock layout. The addresses and setter instructions
 above were found and validated in this user's Astro Bot 01.007 executable;
 addresses from that older game were not reused.
 
-## Requested graphics profile
+## Previous accuracy comparison
 
-The current accurate profile selects 1920 x 1080 output, accurate GPU occlusion
+The previous accurate profile selected 1920 x 1080 output, accurate GPU occlusion
 queries, linear-image readback, raw-image buffer synchronization and tessellation.
 The shader compiler keeps its performance optimization setting; validation and
 profiling remain disabled because they are debugging facilities. Output size is

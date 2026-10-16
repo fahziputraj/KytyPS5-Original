@@ -1,9 +1,9 @@
 param(
     [switch]$LogOutput,
-    [ValidateRange(0,60)][int]$Fps = 0,
+    [ValidateRange(0,60)][int]$Fps = 30,
     [ValidateSet('Variable','Fixed')][string]$Timing = 'Variable',
     [ValidateSet('Accurate','Performance')][string]$Graphics = 'Performance',
-    [ValidateSet('30','Original')][string]$Clock = 'Original',
+    [ValidateSet('30','Original','Adaptive')][string]$Clock = '30',
     [ValidateRange(640,7680)][int]$Width = 1920,
     [ValidateRange(480,4320)][int]$Height = 1080
 )
@@ -26,9 +26,15 @@ if (!(Test-Path -LiteralPath (Join-Path $taskGame 'eboot.bin'))) {
 }
 if (!(Test-Path -LiteralPath (Join-Path $taskGame 'eboot.bin'))) { throw 'Astro Bot game folder is unavailable.' }
 $taskPatchPath = Join-Path $PSScriptRoot '_Patches\PPSA21564.json'
+if ($Clock -eq 'Adaptive') {
+    if ($Timing -ne 'Variable' -or $Fps -notin @(0,60)) { throw 'The adaptive clock requires Variable timing and a 60 FPS ceiling (-Fps 0 or 60).' }
+    $taskPatchPath = Join-Path $PSScriptRoot 'patches\PPSA21564-01.007-clock-adaptive.json'
+}
 if ($Clock -eq '30') {
     if ($Timing -ne 'Variable' -or $Fps -ne 30) { throw 'The 30 FPS clock patch requires Variable timing and a 30 FPS cap.' }
-    if (!(Test-Path -LiteralPath $taskPatchPath)) { throw 'The Astro 30 FPS clock patch is missing.' }
+}
+if ($Clock -ne 'Original') {
+    if (!(Test-Path -LiteralPath $taskPatchPath)) { throw 'The selected Astro clock patch is missing.' }
     $taskPatch = Get-Content -LiteralPath $taskPatchPath -Raw | ConvertFrom-Json
     $taskGameHash = (Get-FileHash -LiteralPath (Join-Path $taskGame 'eboot.bin') -Algorithm SHA256).Hash
     if ($taskGameHash -ne $taskPatch.source_sha256) { throw 'The Astro clock patch supports only the verified 01.007.000 executable.' }
@@ -40,7 +46,7 @@ $taskArgs = @('--game', $taskGame, '--redzone', '--amd-cpu', '--gpu', '0',
     '--shader-log-direction', 'Silent', '--shader-validation', 'false',
     '--vulkan-validation', 'false', '--readback-linear-images', $taskAccurate.ToString().ToLowerInvariant(),
     '--sync-raw-image-buffers', $taskAccurate.ToString().ToLowerInvariant(), '--printf-direction', $(if ($LogOutput) { 'File' } else { 'Silent' }))
-if ($Clock -eq '30') { $taskArgs += @('--game-patch', $taskPatchPath) }
+if ($Clock -ne 'Original') { $taskArgs += @('--game-patch', $taskPatchPath) }
 if ($LogOutput) { $taskArgs += @('--printf-output-file', '_kyty.txt') }
 & (Join-Path $PSScriptRoot 'kyty_emulator.exe') @taskArgs
 exit $LASTEXITCODE

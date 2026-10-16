@@ -1,7 +1,7 @@
 param(
     [switch]$SkipBuild,
     [switch]$PrepareOnly,
-    [ValidateSet('Preserve','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
+    [ValidateSet('Preserve','Performance1080p','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
 )
 $ErrorActionPreference = 'Stop'
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -27,17 +27,19 @@ foreach ($taskName in @('platforms','tls','imageformats','styles','iconengines',
     $taskFolder = Join-Path $taskLauncherRuntime $taskName
     if (Test-Path -LiteralPath $taskFolder) { Copy-Item -LiteralPath $taskFolder -Destination $taskStage -Recurse -Force }
 }
-foreach ($taskName in @('Start-AstroBot.cmd','Start-AstroBot.ps1')) {
+foreach ($taskName in @('Start-AstroBot.cmd','Start-AstroBot.ps1','Start-AstroBot-Adaptive.cmd')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $taskName) -Destination $taskStage -Force
 }
 Copy-Item -LiteralPath (Join-Path $taskStage 'launcher.exe') -Destination (Join-Path $taskStage 'kyty_launcher.exe') -Force
 $taskBundledPatch = 'patches\PPSA21564-01.007-clock30.json'
 New-Item -ItemType Directory -Path (Join-Path $taskStage 'patches') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $taskRepo $taskBundledPatch) -Destination (Join-Path $taskStage $taskBundledPatch) -Force
+$taskAdaptivePatch = 'patches\PPSA21564-01.007-clock-adaptive.json'
+Copy-Item -LiteralPath (Join-Path $taskRepo $taskAdaptivePatch) -Destination (Join-Path $taskStage $taskAdaptivePatch) -Force
 $taskPresetPath = Join-Path $taskDestination 'u59-preset.json'
 if (!(Test-Path -LiteralPath $taskPresetPath)) { throw 'The installed int19.1 preset is missing.' }
 $taskPreset = Get-Content -LiteralPath $taskPresetPath -Raw | ConvertFrom-Json
-foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; KYTY_CPU_HYBRID='off'; KYTY_DEFER_PROTECTS='0' }.GetEnumerator()) {
+foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; KYTY_CPU_HYBRID='on'; KYTY_WRITE_RANGE_STATS='0'; KYTY_DEFER_PROTECTS='0' }.GetEnumerator()) {
     $taskPreset | Add-Member -NotePropertyName $taskSetting.Key -NotePropertyValue $taskSetting.Value -Force
 }
 $taskPreset | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'u59-preset.json') -Encoding UTF8
@@ -53,11 +55,12 @@ $taskManifest = [ordered]@{
     emulator_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'kyty_emulator.exe') -Algorithm SHA256).Hash
     launcher_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'launcher.exe') -Algorithm SHA256).Hash
     tests = 'presentation_timing and cpu_placement including hybrid and recorder modes'
-    astro_clock = '01.007.000 guarded 30 FPS step; experimental, not variable simulation'
+    astro_clock = '01.007.000 guarded 30 FPS default; optional experimental adaptive 30-60 FPS clock'
+    adaptive_clock_default = $false
     graphics_profile = $GraphicsProfile
 }
 $taskManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'BUILD-INFO.json') -Encoding UTF8
-foreach ($taskName in @('kyty_emulator.exe','launcher.exe','kyty_launcher.exe','libwinpthread-1.dll','Qt6Core.dll','Qt6Widgets.dll','platforms\qwindows.dll','u59-preset.json','Start-AstroBot.ps1',$taskBundledPatch)) {
+foreach ($taskName in @('kyty_emulator.exe','launcher.exe','kyty_launcher.exe','libwinpthread-1.dll','Qt6Core.dll','Qt6Widgets.dll','platforms\qwindows.dll','u59-preset.json','Start-AstroBot.ps1','Start-AstroBot-Adaptive.cmd',$taskBundledPatch,$taskAdaptivePatch)) {
     if (!(Test-Path -LiteralPath (Join-Path $taskStage $taskName))) { throw "Staging is incomplete: $taskName" }
 }
 if ($PrepareOnly) { Write-Output "Runtime prepared for verification: $taskStage"; return }
@@ -119,7 +122,8 @@ if ($GraphicsProfile -ne 'Preserve') {
     if (!$taskMatch.Success) { throw 'GlobalConfiguration was not found in Kyty.ini.' }
     $taskSection = $taskMatch.Value
     $taskResolution = $(if ($GraphicsProfile -eq 'Accurate1440p') { 'R2560X1440' } else { 'R1920X1080' })
-    foreach ($taskOption in @{ screen_resolution=$taskResolution; gpu_occlusion_accurate='true'; readback_linear_images='true'; sync_raw_image_buffers='true'; tessellation_enabled='true' }.GetEnumerator()) {
+    $taskAccuracy = $(if ($GraphicsProfile -eq 'Performance1080p') { 'false' } else { 'true' })
+    foreach ($taskOption in @{ screen_resolution=$taskResolution; gpu_occlusion_accurate=$taskAccuracy; readback_linear_images=$taskAccuracy; sync_raw_image_buffers=$taskAccuracy; tessellation_enabled='true' }.GetEnumerator()) {
         $taskPattern = '(?m)^' + [regex]::Escape($taskOption.Key) + '=[^\r\n]*'
         $taskLine = $taskOption.Key + '=' + $taskOption.Value
         if ([regex]::IsMatch($taskSection, $taskPattern)) {

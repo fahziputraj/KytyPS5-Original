@@ -7,7 +7,7 @@ namespace Loader::GamePatch {
 
 // An opt-in title patch supplies its own seconds-per-update. This controller
 // follows elapsed frame time without stretching global guest clocks. Steps are
-// bounded to the tested 60-to-30 FPS range; long pauses never create catch-up debt.
+// bounded to the configured 60-to-30 FPS range; long pauses never create catch-up debt.
 class SimulationClock {
 public:
 	static constexpr double Nominal = 1.0 / 60.0;
