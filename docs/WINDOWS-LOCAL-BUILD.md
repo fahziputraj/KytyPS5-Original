@@ -61,6 +61,39 @@ are backed up and their hashes checked after installation. Explicit
 `-GraphicsProfile` and `-LauncherAstroClock` options keep their existing meanings.
 The fixed 30 FPS Astro wrapper and guarded 01.007 patches remain bundled.
 
+Installation (`tools/runtime-install.ps1`) is transactional:
+
+- **Preflight.** A requested graphics profile, the Astro patch merge, the staged
+  file list and package selection are validated before the destination changes.
+  A missing or malformed `Kyty.ini`, a patch for another game version, user data
+  in the stage or a staged file of an unselected package stops the update with
+  the runtime untouched.
+- **Explicit file set.** The stage folder is reused between builds, so only the
+  CMake install manifest plus the files the updater copies are installed. The
+  list is written to `_Build/runtime-int19.files.txt`.
+- **Backup, journal, rollback.** Each replaced file is copied to the backup and
+  hash-checked, `KYTY-UPDATE-INCOMPLETE.json` records the update, and every
+  installed file is verified against the stage. Any failure restores the previous
+  files and removes created ones. A killed update leaves the journal, which blocks
+  later updates until `tools/update-build.ps1 -Destination <dir>
+  -RestoreIncompleteUpdate` rolls it back.
+- **Optional packages.** A selected `Experiments\FSR3` or `Experiments\DLSS` package
+  is updated; user files in it are kept and listed. An installed package that the
+  build does not select is retained and reported as `retained` (with the build it
+  came from), or moved to the backup with `-RemoveUnselectedPackages`.
+  `BUILD-INFO.json` lists each package's actual files and hashes.
+- **Byte preservation.** An installed `u59-preset.json` is never rewritten. The
+  Astro patch is written only when its merged content changes. Saves are hashed;
+  other `_*` user data (caches, trophies, patches) is fingerprinted by size and
+  time. `Kyty.ini` and the preset are hash-checked unless a change was requested.
+
+`tools/test-runtime-install.ps1` exercises these rules on disposable fixtures under
+`_Build/test-runtime-install` (failure injection, interruption and restore, nested
+or unknown preset fields, package retention and removal), and
+`tools/test-astro-launcher.ps1` checks the Astro shortcut's title, version and
+executable guards with dry runs. The updater runs both before staging; run them
+directly with Windows PowerShell 5.1 and PowerShell 7 after editing the scripts.
+
 A successful compile or launcher startup does not establish FSR/DLSS image
 quality, generated-frame pacing, performance or game compatibility. See the
 [FSR checkpoint](FSR-INTEGRATION-CHECKPOINT.md) and
