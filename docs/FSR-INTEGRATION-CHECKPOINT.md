@@ -4,6 +4,18 @@ This checkpoint connects FSR to the game presentation code. It is **not a
 gameplay-validated release**. Keep the existing preview as the published build
 until the checks below are complete.
 
+## Current status (read first)
+
+The "Validation completed" section below is the original checkpoint record and
+is kept for its measurements. Its rebuild-pending note is historical: later full
+builds on this branch (from `b70f2a5f` onward, see
+`docs/claude-handoff/CURRENT-STATE.json` and the installed `BUILD-INFO.json`)
+include that adjustment. Those builds were compiled, CPU-tested and delivered
+without any GPU execution: in-game FSR dispatch, generated presentation, quality
+and performance remain **unverified**. The launcher passes FSR options only for
+the certified PPSA21564 01.007.000 `eboot.bin` with the AMD library installed;
+other titles start with the native swapchain and original presentation.
+
 Development without an RTX GPU can use the standalone CPU tests and optional
 SDK compilation described in [FSR and DLSS development](FSR-DLSS-DEVELOPMENT.md).
 That path does not provide the missing in-game runtime validation.
@@ -37,8 +49,9 @@ the emulator. The subsequent game launch could not open the game executable
 because the local installation was being replaced during extraction.
 
 After that build, a small source adjustment preserved the original bitwise copy
-for matching sRGB/UNORM formats when upscaling is inactive. That final adjustment
-still needs a rebuild before runtime validation.
+for matching sRGB/UNORM formats when upscaling is inactive. At the time of this
+record that adjustment still needed a rebuild; later builds include it (see
+"Current status"), but it has still not been runtime-validated.
 
 **No in-game FSR dispatch, generated presentation count, visual quality or
 performance improvement has been verified for this checkpoint.** The existing

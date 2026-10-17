@@ -169,11 +169,34 @@ remain disabled. `-LauncherAstroClock Adaptive` explicitly selects the guarded
 `-LauncherAstroClock Fixed30` reverses that selection. Updates otherwise preserve
 the selected GUI clock. The fixed-30 and adaptive command shortcuts use their
 own bundled patch files, so changing the GUI selection cannot change a shortcut's
-simulation clock. Hybrid placement is available but stays off by default until a
-same-scene performance gain is demonstrated.
+simulation clock.
+
+Historical note (before 2026-10-17): hybrid placement was available but off by
+default until a same-scene gain could be demonstrated. **Current:** the owner's
+selected profile (see "Current selection" above and `AGENTS.md`) turns
+`KYTY_CPU_HYBRID=on` with CP reservation. A fresh runtime receives it from the
+updater; an installed `u59-preset.json` is never rewritten, so verify the actual
+preset values on each machine rather than assuming either default.
+
+Since the 2026-10-17 delivery review, the updater validates the INI, Astro patch
+and every staged file before changing the destination, installs only an explicit
+file list, journals the update and rolls back on any failure. An interrupted
+update blocks later ones until `-RestoreIncompleteUpdate` restores it. Optional
+`Experiments\FSR3` and `Experiments\DLSS` packages that a build does not select
+are retained and reported as retained in `BUILD-INFO.json` (or moved into the
+backup with `-RemoveUnselectedPackages`). See the
+[local build guide](WINDOWS-LOCAL-BUILD.md).
 
 `Start-AstroBot.cmd` uses the guarded clock patch, variable presentation, 30 FPS
-and the performance 1080p profile. For an explicit lower-cost comparison, run
+and the performance 1080p profile. Without `-Game` it uses the home PC's H: game
+folders; `-Game <folder with eboot.bin>` selects another location. Before any
+clock patch the shortcut checks `sce_sys/param.json` (title, and APP_VER as the
+emulator reads it) and the executable's SHA-256 against the patch; any other
+title or version, such as the office PC's PPSA21567 01.019, is refused with a
+diagnostic and can run only with `-Clock Original`. `-AmdCpu On|Auto|Off` selects
+the emulator's AMD-instruction compatibility; `On` (`--amd-cpu`) stays the default,
+and an explicit choice overrides a preset `KYTY_AMD_CPU`. `-DryRun` prints the
+validated launch without starting the emulator. For an explicit lower-cost comparison, run
 `Start-AstroBot.ps1 -Graphics Performance -Width 1920 -Height 1080`.
 For original game timing, use `-Clock Original -Fps 0`; `-Timing Fixed` is available
 with that original clock. Normal play uses silent guest logging.
