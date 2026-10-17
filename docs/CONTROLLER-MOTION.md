@@ -89,3 +89,56 @@ The local Astro wrapper accepts `-MotionSource active|off|GUID` and
 `-MotionRate 0|60..1000`. Its fixed-30 and optional adaptive clocks are unchanged.
 These source changes are newer than Windows pacing preview 1; its immutable
 release tag does not contain this controller work.
+
+## Input mapping and controller setup (upstream port)
+
+The launcher's controller setup and input mapping come from upstream KytyPS5:
+`7da3c4ed` (controller setup screen) and #1541 (mapping tabs, touchpad emulation,
+right-stick tilt, rumble for non-DualSense pads). They were cherry-picked onto this
+fork with their authors kept. The physical motion sources described above are
+unchanged.
+
+- **Two mapping tabs.** One maps keyboard and mouse to the DualSense, the other
+  remaps any SDL gamepad's buttons, triggers and left stick. Either tab can be
+  disabled (`Keyboard=Disabled`, `Pad=Disabled`). Bindings are stored in the same
+  `host_input_mapping` list as before (`Pad:<control>=<source>` for the controller
+  tab), so earlier keyboard mappings load unchanged and games inherit the global list.
+- **Touchpad on pads without one.** Xbox-style pads, Switch pads and the AX9 in
+  XInput mode have no touchpad. When Back/View is not bound to anything else, it is
+  a centred touchpad click; pads with their own touchpad use it instead. Binding
+  Back in the Controller tab replaces this, and disabling the Controller tab
+  turns it off. Upstream binds Back to the gyro toggle by default; this fork does not.
+- **Right-stick tilt (gyro emulation).** `GyroToggle` starts unbound; choose a
+  button or key for it in the mapping dialog. While tilt is on, the right stick
+  tilts the virtual DualSense up to 45 degrees and stops moving the right stick,
+  and it replaces any physical gyro, including the AX9's in Switch Pro mode. Tilt
+  updates follow the same motion history rate as physical samples. If the game
+  has turned motion off, the pose stays neutral. Turning tilt off reports a
+  neutral pose, restores the stick and lets the physical gyro resume from its next
+  sample. A pad that disconnects leaves tilt off.
+- **Emulated touchpad.** F6 (`TouchPadMode`) toggles mouse touchpad mode: the
+  cursor is the finger and the left button touches. A bound `TouchPadMode` button
+  toggles gamepad touchpad mode: the left stick moves the finger and Cross touches.
+  The mapping dialog chooses the trail/particle skin and whether a hand cursor is
+  drawn (`TouchParticleSkin=`, `TouchCursorImage=Off`). The cursor images install
+  to `assets/cursors`.
+- **Rumble on non-DualSense pads.** This fork already approximated the DualSense's
+  haptic audio with the rumble motors, using per-channel gains and the vibration
+  intensity. That stays; it now also closes a stale audio device when the active
+  pad is not a DualSense.
+
+### Not verified on the development PC
+
+No controller was connected and the renderer does not run on UHD 730, so the
+following home-PC checklist is pending:
+
+1. The controller setup screen and both mapping tabs open. A controller binding
+   saves and survives a launcher restart.
+2. AX9 in XInput mode: Back clicks the touchpad in a game that needs it; a
+   remapped button works; rumble works.
+3. AX9 in NS Pro mode: the physical gyro still moves the camera with
+   `--controller-motion active`. A bound gyro toggle switches to right-stick
+   tilt and back.
+4. Mouse touchpad mode and the gamepad touchpad mode work, and their cursor
+   visuals appear and disappear with the toggles.
+5. Astro 01.007 fixed-30 shortcut behaves as before.
