@@ -1,6 +1,7 @@
 param(
     [switch]$SkipBuild,
     [switch]$PrepareOnly,
+    [switch]$Fsr3Probe,
     [ValidateSet('Preserve','Performance1080p','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
 )
 $ErrorActionPreference = 'Stop'
@@ -10,7 +11,9 @@ $taskBuild = Join-Path $taskRepo '_Build\windows-int19'
 $taskStage = Join-Path $taskRepo '_Build\runtime-int19'
 $taskCmakeBin = 'C:\Users\fahzi\Documents\Codex\2026-10-15\he\work\build-tools-python\cmake\data\bin'
 if (!$SkipBuild) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-windows-local.ps1') -Configure
+    $taskBuildOptions = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'build-windows-local.ps1'), '-Configure')
+    if ($Fsr3Probe) { $taskBuildOptions += '-Fsr3Probe' }
+    & powershell @taskBuildOptions
     if ($LASTEXITCODE -ne 0) { throw 'Build failed; installed binaries were not updated.' }
 }
 & "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|cpu_placement.*)$'
@@ -44,6 +47,28 @@ foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; K
 }
 $taskPreset | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'u59-preset.json') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $taskRepo 'docs\ASTRO-TIMING.md') -Destination (Join-Path $taskStage 'BUILD-NOTES.md') -Force
+Copy-Item -LiteralPath (Join-Path $taskRepo 'docs\GLOBAL-PACING-FSR-PROPOSAL.md') -Destination (Join-Path $taskStage 'GLOBAL-PACING-FSR.md') -Force
+$taskFsrInfo = [ordered]@{ bundled = $false; in_game_enabled = $false }
+if ($Fsr3Probe) {
+    $taskSdkPackage = Join-Path $taskRepo '_Build\deps\fidelityfx-1.1.4\sdk-package'
+    $taskFsrDll = Join-Path $taskSdkPackage 'PrebuiltSignedDLL\amd_fidelityfx_vk.dll'
+    $taskFsrProbe = Join-Path $taskBuild 'fsr3_vulkan_probe.exe'
+    if ((Get-FileHash -LiteralPath $taskFsrDll -Algorithm SHA256).Hash -ne 'A1624CC4238FEF046F30C4D80CE3F47BE63FC5F5373F49E3EE9EDB9960F54C78') {
+        throw 'The optional FSR3 library does not match the pinned SDK.'
+    }
+    if ((Get-AuthenticodeSignature -LiteralPath $taskFsrDll).Status -ne 'Valid') {
+        throw 'The optional FSR3 library signature is invalid.'
+    }
+    & $taskFsrProbe $taskFsrDll (Join-Path $taskBuild 'fsr3-smoke-generated.ppm')
+    if ($LASTEXITCODE -ne 0) { throw 'The optional FSR3 GPU probe failed; installed binaries were not updated.' }
+    $taskFsrDestination = Join-Path $taskStage 'Experiments\FSR3'
+    New-Item -ItemType Directory -Path $taskFsrDestination -Force | Out-Null
+    Copy-Item -LiteralPath $taskFsrProbe,$taskFsrDll,(Join-Path $taskSdkPackage 'sdk\LICENSE.txt'),(Join-Path $PSScriptRoot 'Run-FSR3-Test.cmd') -Destination $taskFsrDestination -Force
+    $taskFsrInfo['bundled'] = $true
+    $taskFsrInfo['sdk'] = '1.1.4'
+    $taskFsrInfo['library_sha256'] = (Get-FileHash -LiteralPath $taskFsrDll -Algorithm SHA256).Hash
+    $taskFsrInfo['validation'] = 'Six offscreen Vulkan interpolation dispatches and generated-frame readback; no guest presentation tested'
+}
 $taskManifest = [ordered]@{
     distribution = 'Local build based on Jetsku int19.1'
     source = $taskRepo
@@ -54,12 +79,14 @@ $taskManifest = [ordered]@{
     built_at = [DateTimeOffset]::Now.ToString('o')
     emulator_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'kyty_emulator.exe') -Algorithm SHA256).Hash
     launcher_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'launcher.exe') -Algorithm SHA256).Hash
-    tests = 'presentation_timing and cpu_placement including hybrid and recorder modes'
+    tests = '8 tests: presentation timing/configuration, typed simulation profiles, launcher persistence/inheritance, CPU placement including hybrid and recorder modes'
+    global_controls = 'Independent or fixed presentation, FPS limit, CPU scheduling; simulation pace requires a validated engine profile'
+    fsr3 = $taskFsrInfo
     astro_clock = '01.007.000 guarded 30 FPS default; optional experimental adaptive 30-60 FPS clock'
     adaptive_clock_default = $false
     graphics_profile = $GraphicsProfile
 }
-$taskManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'BUILD-INFO.json') -Encoding UTF8
+$taskManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $taskStage 'BUILD-INFO.json') -Encoding UTF8
 foreach ($taskName in @('kyty_emulator.exe','launcher.exe','kyty_launcher.exe','libwinpthread-1.dll','Qt6Core.dll','Qt6Widgets.dll','platforms\qwindows.dll','u59-preset.json','Start-AstroBot.ps1','Start-AstroBot-Adaptive.cmd',$taskBundledPatch,$taskAdaptivePatch)) {
     if (!(Test-Path -LiteralPath (Join-Path $taskStage $taskName))) { throw "Staging is incomplete: $taskName" }
 }
@@ -140,5 +167,5 @@ foreach ($taskSave in $taskSaveHashes.GetEnumerator()) {
 }
 $taskManifest['backup'] = $taskBackup
 $taskManifest['save_files_verified_unchanged_at_install'] = $taskSaveHashes.Count
-$taskManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskDestination 'BUILD-INFO.json') -Encoding UTF8
+$taskManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $taskDestination 'BUILD-INFO.json') -Encoding UTF8
 Write-Output "Latest runnable build: $taskDestination; previous runtime: $taskBackup"

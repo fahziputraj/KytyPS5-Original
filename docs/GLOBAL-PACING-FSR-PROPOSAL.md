@@ -1,7 +1,7 @@
 # Global presentation controls and the FSR3 test prototype
 
 Target for an eventual proposal: **Jetsku/KytyPS5**. Development starts on
-`codex/test-global-pacing-fsr`, based on the working local U59 int19.1 build.
+`feature/global-pacing-fsr`, based on the working local U59 int19.1 build.
 This document describes a test branch, not a claim of compatibility with every
 game. Keep normal play's known settings, caches and saves when testing it.
 
@@ -103,6 +103,11 @@ motion and camera data, reads the generated images back, and checks that output
 is populated and differs from the rendered frame after history warmup. It also
 checks rejection of missing guides. This is an SDK/GPU integration test; it does
 not establish in-game FG, doubled game speed, image quality, or a performance gain.
+
+The local delivery script's optional `-Fsr3Probe` runs that GPU check and bundles
+the probe, pinned signed AMD library and license under `Experiments/FSR3` in
+`F:\KytyPS5-Build`. `Run-FSR3-Test.cmd` repeats the offscreen test; it does not
+enable game frame generation. Delivery without this flag requires no SDK.
 
 ### Remaining game integration
 

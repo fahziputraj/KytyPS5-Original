@@ -5,6 +5,10 @@ Replace the binaries in that directory on each update. Preserve existing setting
 shader/pipeline caches, and save data. Use `tools/update-build.ps1` to build, test,
 and stage source-build updates in that location.
 
+Use standard branch prefixes such as `feature/`, `fix/`, `chore/`, and `test/`.
+The user explicitly rejected the `codex/` prefix for new branches. Historical
+backup branches with that prefix may remain unchanged.
+
 The user selected Jetsku U59 int19.1 as the source base and subsequently requested
 rebasing local work onto it and fixing CPU load / slow motion with variable FPS:
 https://github.com/Jetsku/KytyPS5/releases/tag/u59-windows-20261013-int19.1
@@ -28,7 +32,7 @@ using a save copy; do not claim full-speed gameplay below its 30 FPS floor or
 correct gameplay pace from the FPS counter alone.
 
 The latest request extends the reusable controls to other games and investigates
-FSR frame generation. Work on `codex/test-global-pacing-fsr` and commit there
+FSR frame generation. Work on `feature/global-pacing-fsr` and commit there
 first; the intended proposal target is Jetsku's fork. Preserve the working Astro
 profile. Global presentation/CPU controls do not authorize guessing game clock
 addresses or FSR guide textures. See `docs/GLOBAL-PACING-FSR-PROPOSAL.md` for the

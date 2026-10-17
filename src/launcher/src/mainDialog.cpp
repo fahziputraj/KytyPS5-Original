@@ -500,11 +500,12 @@ void MainDialog::RunInterpreter(QProcess* process, const Configuration& info) {
 	process->setArguments(args);
 #endif
 	process->setWorkingDirectory(dir.path());
+	auto environment = QProcessEnvironment::systemEnvironment();
 	if (info.cpu_hybrid != QStringLiteral("preset")) {
-		auto environment = QProcessEnvironment::systemEnvironment();
 		environment.insert(QStringLiteral("KYTY_CPU_HYBRID"), info.cpu_hybrid);
-		process->setProcessEnvironment(environment);
 	}
+	// QProcess is reused: returning to Preset must discard the previous game's override.
+	process->setProcessEnvironment(environment);
 #if defined(_WIN32)
 	process->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {
 		args->flags |= static_cast<uint32_t>(CREATE_NEW_CONSOLE);
