@@ -1,32 +1,15 @@
 #pragma once
 
-#include <array>
-#include <cstdint>
+#include "graphics/presentation/frameGeneration/temporalInputs.h"
+
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <vulkan/vulkan.h>
 
 namespace Libs::Graphics::FrameGeneration {
 
-struct FsrImage {
-	VkImage  image  = VK_NULL_HANDLE;
-	VkFormat format = VK_FORMAT_UNDEFINED;
-	uint32_t width = 0, height = 0;
-};
-
-struct FsrFrame {
-	FsrImage             color, depth, motion, output;
-	uint64_t             id           = 0;
-	float                milliseconds = 0.0f;
-	float                near_plane = 0.0f, far_plane = 0.0f, vertical_fov = 0.0f;
-	float                jitter_x = 0.0f, jitter_y = 0.0f;
-	float                motion_scale_x = 1.0f, motion_scale_y = 1.0f;
-	float                view_space_to_meters = 0.0f;
-	std::array<float, 3> camera_position {}, camera_right {}, camera_up {}, camera_forward {};
-	bool                 hudless_scene = false;
-	bool                 reset         = false;
-};
+using FsrImage = TemporalImage;
+using FsrFrame = TemporalInputs;
 
 // Prototype backend for a future verified guest-input provider. It records into
 // a dedicated host command buffer, never the guest's renderer recording. Inputs

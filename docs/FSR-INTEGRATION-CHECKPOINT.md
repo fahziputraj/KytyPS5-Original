@@ -4,6 +4,10 @@ This checkpoint connects FSR to the game presentation code. It is **not a
 gameplay-validated release**. Keep the existing preview as the published build
 until the checks below are complete.
 
+Development without an RTX GPU can use the standalone CPU tests and optional
+SDK compilation described in [FSR and DLSS development](FSR-DLSS-DEVELOPMENT.md).
+That path does not provide the missing in-game runtime validation.
+
 The optional FidelityFX 1.1.4 build now includes:
 
 - Saved launcher and CLI selections for FSR upscaling and frame generation.

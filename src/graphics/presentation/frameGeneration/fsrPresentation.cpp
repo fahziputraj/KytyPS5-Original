@@ -1,5 +1,7 @@
 #include "graphics/presentation/frameGeneration/fsrPresentation.h"
 
+#include "graphics/presentation/frameGeneration/fsrFrameValidation.h"
+
 #define NOMINMAX
 #include <windows.h>
 #include <algorithm>
@@ -44,8 +46,8 @@ struct FsrPresentation::Impl {
 	VkSwapchainKHR                              handle    = VK_NULL_HANDLE;
 	PFN_vkDeviceWaitIdle                        wait_idle = nullptr;
 	uint32_t                                    width = 0, height = 0;
-	uint64_t                                    sequence = 0, guest_id = UINT64_MAX;
-	bool                                        history = false;
+	uint64_t                                    sequence = 0;
+	TemporalHistory                             history;
 	std::array<std::atomic<uint64_t>, 8>        reset_ids {};
 
 	bool Configure(bool enabled, bool reset, std::string& error) {
@@ -80,9 +82,11 @@ bool FsrPresentation::Initialize(VkDevice device, VkPhysicalDevice physical,
                                  PFN_vkGetDeviceProcAddr get_proc, uint32_t width, uint32_t height,
                                  VkFormat format, bool upscale, bool generate, std::string& error) {
 	Shutdown();
-	if (!device || !physical || !get_proc || width == 0 || height == 0 ||
+	if (!device || !physical || !get_proc || width == 0 || height == 0 || width > 16384 ||
+	    height > 16384 ||
 	    (format != VK_FORMAT_R8G8B8A8_UNORM && format != VK_FORMAT_B8G8R8A8_UNORM) ||
-	    !get_proc(device, "vkGetBufferMemoryRequirements2KHR")) {
+	    !get_proc(device, "vkGetBufferMemoryRequirements2KHR") ||
+	    !get_proc(device, "vkDeviceWaitIdle")) {
 		error = "FSR requires an SDR swapchain and the enabled Vulkan SDK features";
 		return false;
 	}
@@ -97,7 +101,7 @@ bool FsrPresentation::Initialize(VkDevice device, VkPhysicalDevice physical,
 	                     L"Experiments/FSR3/amd_fidelityfx_vk.dll";
 	m->library =
 	    LoadLibraryExW(library.c_str(), nullptr,
-	                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+		               LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 	if (!m->library) {
 		error = "The bundled FidelityFX Vulkan library is missing or cannot load";
 		return false;
@@ -198,39 +202,37 @@ VkResult FsrPresentation::Present(VkQueue queue, const VkPresentInfoKHR& info) {
 uint64_t FsrPresentation::PresentCount(VkSwapchainKHR swapchain) const {
 	return m->functions.pOutGetLastPresentCountFFXAPI
 	           ? m->functions.pOutGetLastPresentCountFFXAPI(swapchain)
-	           : 0;
+			   : 0;
 }
 
 bool FsrPresentation::Record(VkCommandBuffer command, const FsrFrame& frame, bool generate,
                              std::string& error) {
-	const auto valid_guide = [&](const FsrImage& image) {
-		return image.image && image.width && image.height && image.width <= m->width &&
-		       image.height <= m->height;
-	};
 	error.clear();
-	if ((!m->generation && !m->upscale) || !command || !valid_guide(frame.depth) ||
-	    !valid_guide(frame.motion) || frame.depth.width != frame.motion.width ||
-	    frame.depth.height != frame.motion.height || frame.depth.format != VK_FORMAT_R32_SFLOAT ||
-	    frame.motion.format != VK_FORMAT_R16G16_SFLOAT || !std::isfinite(frame.milliseconds) ||
-	    frame.milliseconds <= 0 || frame.milliseconds > 100 || !std::isfinite(frame.near_plane) ||
-	    !std::isfinite(frame.far_plane) || frame.near_plane <= 0 ||
-	    frame.far_plane <= frame.near_plane || !std::isfinite(frame.vertical_fov) ||
-	    frame.vertical_fov <= 0 || frame.vertical_fov >= 3.14159f) {
-		error = "FSR temporal guides are missing, stale or unsupported";
+	if ((!m->generation && !m->upscale) || !command) {
+		error = "FSR context or command buffer is unavailable";
 		Suspend();
 		return false;
 	}
-	const bool reset = frame.reset || !m->history || frame.id != m->guest_id + 1;
+	if (const auto* invalid =
+	        ValidateFsrPresentationFrame(frame, m->width, m->height, m->upscale != nullptr)) {
+		error = invalid;
+		Suspend();
+		return false;
+	}
+	if (m->history.IsDuplicate(frame.id)) {
+		error = "FSR duplicate guest frame cannot advance temporal history";
+		Suspend();
+		return false;
+	}
+	const bool reset = m->history.NeedsReset(frame.id, frame.depth.width, frame.depth.height,
+	                                         frame.reset, generate && m->swapchain);
 	++m->sequence;
 	if (m->swapchain && !m->Configure(generate, reset, error)) {
 		Suspend();
 		return false;
 	}
 	bool upscaled = false;
-	if (m->upscale && valid_guide(frame.color) && frame.color.width == frame.depth.width &&
-	    frame.color.height == frame.depth.height && frame.output.image &&
-	    frame.output.width == m->width && frame.output.height == m->height &&
-	    frame.output.format == VK_FORMAT_R8G8B8A8_UNORM) {
+	if (m->upscale) {
 		ffxDispatchDescUpscale dispatch {};
 		dispatch.header.type       = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
 		dispatch.commandList       = command;
@@ -287,15 +289,14 @@ bool FsrPresentation::Record(VkCommandBuffer command, const FsrFrame& frame, boo
 			return false;
 		}
 	}
-	m->guest_id = frame.id;
-	m->history  = true;
+	m->history.Commit(frame.id, frame.depth.width, frame.depth.height, generate && m->swapchain);
 	return upscaled;
 }
 
 void FsrPresentation::Suspend() {
 	std::string ignored;
 	if (m->generation && m->swapchain) m->Configure(false, true, ignored);
-	m->history = false;
+	m->history.Invalidate();
 }
 void FsrPresentation::WaitForPresents() {
 	if (!m->swapchain) return;

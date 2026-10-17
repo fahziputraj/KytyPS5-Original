@@ -1,5 +1,7 @@
 #include "graphics/presentation/frameGeneration/fsr3Backend.h"
 
+#include "graphics/presentation/frameGeneration/fsrFrameValidation.h"
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -20,9 +22,8 @@ struct Fsr3Backend::Impl {
 	VkDevice             device    = VK_NULL_HANDLE;
 	PFN_vkDeviceWaitIdle wait_idle = nullptr;
 	uint32_t             width = 0, height = 0;
-	VkFormat             format  = VK_FORMAT_UNDEFINED;
-	uint64_t             last_id = 0;
-	bool                 history = false;
+	VkFormat             format = VK_FORMAT_UNDEFINED;
+	TemporalHistory      history;
 };
 
 namespace {
@@ -83,7 +84,7 @@ bool Fsr3Backend::Initialize(const std::filesystem::path& library, VkDevice devi
 	}
 	m_impl->library =
 	    LoadLibraryExW(library.c_str(), nullptr,
-	                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+		               LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 	if (m_impl->library == nullptr) return Failure(error, "LoadLibraryExW", GetLastError());
 	ffxLoadFunctions(&m_impl->api, m_impl->library);
 	if (!m_impl->api.CreateContext || !m_impl->api.DestroyContext || !m_impl->api.Configure ||
@@ -124,49 +125,29 @@ bool Fsr3Backend::Initialize(const std::filesystem::path& library, VkDevice devi
 }
 
 void Fsr3Backend::ResetHistory() {
-	m_impl->history = false;
+	m_impl->history.Invalidate();
 }
 
 bool Fsr3Backend::Record(VkCommandBuffer command, const FsrFrame& frame, std::string& error) {
-	const auto finite = [](const auto& vector) {
-		return std::all_of(vector.begin(), vector.end(), [](float v) { return std::isfinite(v); });
-	};
-	const auto unit = [&](const auto& vector) {
-		return finite(vector) && std::abs(vector[0] * vector[0] + vector[1] * vector[1] +
-		                                  vector[2] * vector[2] - 1.0f) < 0.001f;
-	};
-	const auto orthogonal = [](const auto& a, const auto& b) {
-		return std::abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) < 0.001f;
-	};
-	const auto valid = [&](const FsrImage& image) {
-		return image.image != VK_NULL_HANDLE && image.width == m_impl->width &&
-		       image.height == m_impl->height && image.format != VK_FORMAT_UNDEFINED;
-	};
-	if (!m_impl->context || command == VK_NULL_HANDLE || !valid(frame.color) ||
-	    !valid(frame.depth) || !valid(frame.motion) || !valid(frame.output) ||
-	    frame.color.format != m_impl->format || frame.output.format != m_impl->format ||
-	    (frame.depth.format != VK_FORMAT_R32_SFLOAT &&
-	     frame.depth.format != VK_FORMAT_D32_SFLOAT) ||
-	    (frame.motion.format != VK_FORMAT_R16G16_SFLOAT &&
-	     frame.motion.format != VK_FORMAT_R32G32_SFLOAT) ||
-	    !std::isfinite(frame.milliseconds) || frame.milliseconds <= 0 || frame.milliseconds > 250 ||
-	    !std::isfinite(frame.near_plane) || !std::isfinite(frame.far_plane) ||
-	    !std::isfinite(frame.vertical_fov) || frame.near_plane <= 0 ||
-	    frame.far_plane <= frame.near_plane || frame.vertical_fov <= 0 ||
-	    frame.vertical_fov >= 3.14159f || !std::isfinite(frame.jitter_x) ||
-	    !std::isfinite(frame.jitter_y) || !std::isfinite(frame.motion_scale_x) ||
-	    !std::isfinite(frame.motion_scale_y) || frame.motion_scale_x == 0 ||
-	    frame.motion_scale_y == 0 || frame.color.image == frame.output.image ||
-	    !finite(frame.camera_position) || !unit(frame.camera_right) || !unit(frame.camera_up) ||
-	    !unit(frame.camera_forward) || !orthogonal(frame.camera_right, frame.camera_up) ||
-	    !orthogonal(frame.camera_right, frame.camera_forward) ||
-	    !orthogonal(frame.camera_up, frame.camera_forward) || !frame.hudless_scene ||
-	    !std::isfinite(frame.view_space_to_meters) || frame.view_space_to_meters <= 0.0f) {
-		error = "FSR3 frame is missing compatible color, depth, motion, camera or output data";
+	error.clear();
+	if (!m_impl->context || command == VK_NULL_HANDLE) {
+		error = "FSR3 context or command buffer is unavailable";
 		ResetHistory();
 		return false;
 	}
-	const bool reset = frame.reset || !m_impl->history || frame.id != m_impl->last_id + 1;
+	if (const auto* invalid =
+	        ValidateFsrProbeFrame(frame, m_impl->width, m_impl->height, m_impl->format)) {
+		error = invalid;
+		ResetHistory();
+		return false;
+	}
+	if (m_impl->history.IsDuplicate(frame.id)) {
+		error = "FSR3 duplicate guest frame cannot advance temporal history";
+		ResetHistory();
+		return false;
+	}
+	const bool reset = m_impl->history.NeedsReset(frame.id, frame.depth.width, frame.depth.height,
+	                                              frame.reset, true);
 	ffxConfigureDescFrameGeneration configure {};
 	configure.header.type            = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
 	configure.frameGenerationEnabled = true;
@@ -221,8 +202,7 @@ bool Fsr3Backend::Record(VkCommandBuffer command, const FsrFrame& frame, std::st
 		ResetHistory();
 		return Failure(error, "FSR3 generation", status);
 	}
-	m_impl->last_id = frame.id;
-	m_impl->history = true;
+	m_impl->history.Commit(frame.id, frame.depth.width, frame.depth.height, true);
 	return true;
 }
 

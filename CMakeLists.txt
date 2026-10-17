@@ -709,6 +709,11 @@ add_executable(temporal_camera_tests EXCLUDE_FROM_ALL "${KYTY_TESTS_DIR}/Tempora
 target_include_directories(temporal_camera_tests PRIVATE ${KYTY_SOURCE_DIR})
 add_test(NAME temporal_camera COMMAND temporal_camera_tests)
 
+add_executable(temporal_input_tests EXCLUDE_FROM_ALL "${KYTY_TESTS_DIR}/TemporalInputTests.cpp")
+target_include_directories(temporal_input_tests PRIVATE ${KYTY_SOURCE_DIR})
+target_link_libraries(temporal_input_tests PRIVATE Vulkan::Headers)
+add_test(NAME temporal_input COMMAND temporal_input_tests)
+
 add_executable(cpu_placement_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/CpuPlacementTests.cpp"
 )
