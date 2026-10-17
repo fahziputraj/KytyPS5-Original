@@ -163,11 +163,16 @@ INI, caches and saves. `-GraphicsProfile Accurate1080p` explicitly changes the
 installed global graphics settings; subsequent updates default to preserving them.
 The Astro patch is merged into `_Patches/PPSA21564.json` for GUI launch, preserving
 other mods and backing up the previous document. Existing disabled clock mods
-remain disabled. Hybrid placement is available but stays off by default until a
+remain disabled. `-LauncherAstroClock Adaptive` explicitly selects the guarded
+30-60 FPS clock for GUI launches and disables the fixed-30 clock mod;
+`-LauncherAstroClock Fixed30` reverses that selection. Updates otherwise preserve
+the selected GUI clock. The fixed-30 and adaptive command shortcuts use their
+own bundled patch files, so changing the GUI selection cannot change a shortcut's
+simulation clock. Hybrid placement is available but stays off by default until a
 same-scene performance gain is demonstrated.
 
 `Start-AstroBot.cmd` uses the guarded clock patch, variable presentation, 30 FPS
-and the accurate 1080p profile. For a lower-cost comparison, run
+and the performance 1080p profile. For an explicit lower-cost comparison, run
 `Start-AstroBot.ps1 -Graphics Performance -Width 1920 -Height 1080`.
 For original game timing, use `-Clock Original -Fps 0`; `-Timing Fixed` is available
 with that original clock. Normal play uses silent guest logging.

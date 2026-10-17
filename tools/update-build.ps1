@@ -2,7 +2,8 @@ param(
     [switch]$SkipBuild,
     [switch]$PrepareOnly,
     [switch]$Fsr3Probe,
-    [ValidateSet('Preserve','Performance1080p','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve'
+    [ValidateSet('Preserve','Performance1080p','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve',
+    [ValidateSet('Preserve','Fixed30','Adaptive')][string]$LauncherAstroClock = 'Preserve'
 )
 $ErrorActionPreference = 'Stop'
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -86,6 +87,7 @@ $taskManifest = [ordered]@{
     astro_clock = '01.007.000 guarded 30 FPS default; optional experimental adaptive 30-60 FPS clock'
     adaptive_clock_default = $false
     graphics_profile = $GraphicsProfile
+    launcher_clock_update = $LauncherAstroClock
 }
 $taskManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $taskStage 'BUILD-INFO.json') -Encoding UTF8
 foreach ($taskName in @('kyty_emulator.exe','launcher.exe','kyty_launcher.exe','libwinpthread-1.dll','Qt6Core.dll','Qt6Widgets.dll','platforms\qwindows.dll','u59-preset.json','Start-AstroBot.ps1','Start-AstroBot-Adaptive.cmd',$taskBundledPatch,$taskAdaptivePatch)) {
@@ -107,6 +109,22 @@ if (Test-Path -LiteralPath $taskPatchDestination) {
     $taskExisting.mods = @($taskExisting.mods | Where-Object { $_.id -ne $taskClockMod.id }) + @($taskClockMod)
     $taskExisting | Add-Member -NotePropertyName source_sha256 -NotePropertyValue $taskPatchDocument.source_sha256 -Force
     $taskPatchDocument = $taskExisting
+}
+if ($LauncherAstroClock -ne 'Preserve') {
+    $taskClockDocuments = @(
+        (Get-Content -LiteralPath (Join-Path $taskStage $taskBundledPatch) -Raw | ConvertFrom-Json),
+        (Get-Content -LiteralPath (Join-Path $taskStage $taskAdaptivePatch) -Raw | ConvertFrom-Json)
+    )
+    $taskSelectedClock = $(if ($LauncherAstroClock -eq 'Adaptive') { 'codex.astro.clock-adaptive' } else { 'codex.astro.clock30' })
+    foreach ($taskClockDocument in $taskClockDocuments) {
+        if ($taskClockDocument.id -ne $taskPatchDocument.id -or $taskClockDocument.version -ne $taskPatchDocument.version -or
+            $taskClockDocument.process -ne $taskPatchDocument.process -or $taskClockDocument.source_sha256 -ne $taskPatchDocument.source_sha256) {
+            throw 'The bundled Astro clock profiles do not match the installed title/version.'
+        }
+        $taskClockMod = $taskClockDocument.mods[0]
+        $taskClockMod.enabled = $taskClockMod.id -eq $taskSelectedClock
+        $taskPatchDocument.mods = @($taskPatchDocument.mods | Where-Object { $_.id -ne $taskClockMod.id }) + @($taskClockMod)
+    }
 }
 $taskBackup = Join-Path 'F:\KytyPS5-Build-Backups' ([DateTime]::Now.ToString('yyyyMMdd-HHmmss') + '-before-realtime-pacing')
 New-Item -ItemType Directory -Path $taskBackup | Out-Null

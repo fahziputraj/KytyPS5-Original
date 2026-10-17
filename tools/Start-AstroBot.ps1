@@ -28,7 +28,7 @@ if (!(Test-Path -LiteralPath (Join-Path $taskGame 'eboot.bin'))) {
     $taskGame = 'H:\PS5 Games\PPSA21564 [ 01.007 ]-[DLPSGAME.COM]\PPSA21564-app'
 }
 if (!(Test-Path -LiteralPath (Join-Path $taskGame 'eboot.bin'))) { throw 'Astro Bot game folder is unavailable.' }
-$taskPatchPath = Join-Path $PSScriptRoot '_Patches\PPSA21564.json'
+$taskPatchPath = Join-Path $PSScriptRoot 'patches\PPSA21564-01.007-clock30.json'
 if ($Clock -eq 'Adaptive') {
     if ($Timing -ne 'Variable' -or $Fps -notin @(0,60)) { throw 'The adaptive clock requires Variable timing and a 60 FPS ceiling (-Fps 0 or 60).' }
     $taskPatchPath = Join-Path $PSScriptRoot 'patches\PPSA21564-01.007-clock-adaptive.json'
