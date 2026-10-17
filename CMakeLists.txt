@@ -675,6 +675,16 @@ add_executable(presentation_timing_tests EXCLUDE_FROM_ALL
     "${KYTY_TESTS_DIR}/PresentationTimingTests.cpp")
 target_include_directories(presentation_timing_tests PRIVATE ${inc_headers})
 
+add_executable(simulation_clock_profile_tests EXCLUDE_FROM_ALL
+    "${KYTY_TESTS_DIR}/SimulationClockProfileTests.cpp")
+target_link_libraries(simulation_clock_profile_tests PRIVATE nlohmann_json::nlohmann_json)
+target_include_directories(simulation_clock_profile_tests PRIVATE ${inc_headers})
+
+add_executable(presentation_config_tests EXCLUDE_FROM_ALL
+    "${KYTY_TESTS_DIR}/PresentationConfigTests.cpp")
+target_link_libraries(presentation_config_tests PRIVATE common)
+target_include_directories(presentation_config_tests PRIVATE ${inc_headers})
+
 add_executable(cpu_placement_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/CpuPlacementTests.cpp"
 )
@@ -1178,6 +1188,8 @@ if(BUILD_TESTING)
 	set_tests_properties(hang_watchdog_fire hang_watchdog_fatal_shutdown PROPERTIES TIMEOUT 15)
 	add_test(NAME profiler_counters COMMAND $<TARGET_FILE:profiler_counter_tests>)
 	add_test(NAME presentation_timing COMMAND $<TARGET_FILE:presentation_timing_tests>)
+	add_test(NAME simulation_clock_profile COMMAND $<TARGET_FILE:simulation_clock_profile_tests>)
+	add_test(NAME presentation_config COMMAND $<TARGET_FILE:presentation_config_tests>)
 	add_test(NAME cpu_placement COMMAND $<TARGET_FILE:cpu_placement_tests>)
 	add_test(NAME cpu_placement_recorder COMMAND $<TARGET_FILE:cpu_placement_tests> --mode cp+recorder)
 	add_test(NAME cpu_placement_hybrid COMMAND $<TARGET_FILE:cpu_placement_tests> --hybrid)

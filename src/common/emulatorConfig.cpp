@@ -3,6 +3,8 @@
 #include "common/assert.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 
 namespace Config {
@@ -90,6 +92,24 @@ bool AudioObjectsEnabled() {
 
 PresentMode GetPresentMode() {
 	return g_config->present_mode;
+}
+
+bool IndependentPresentationEnabled() {
+	if (g_config->independent_presentation.has_value()) {
+		return *g_config->independent_presentation;
+	}
+	const auto* value = std::getenv("KYTY_PRESENT_WHEN_READY");
+	return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+uint32_t GetPresentationFps() {
+	if (g_config->presentation_fps.has_value()) {
+		return std::min(*g_config->presentation_fps, 240u);
+	}
+	const auto* value = std::getenv("KYTY_PRESENT_FPS");
+	return value == nullptr
+	           ? 0u
+	           : static_cast<uint32_t>(std::clamp(std::strtol(value, nullptr, 10), 0L, 240L));
 }
 
 int32_t GetGpuIndex() {

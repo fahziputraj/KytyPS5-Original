@@ -168,6 +168,9 @@ public:
 	int                    user_id                     = Config::DEFAULT_USER_ID;
 	QString                audio_input_device;
 	PresentMode            present_mode                = PresentMode::Mailbox;
+	QString                presentation_clock          = QStringLiteral("preset");
+	int                    presentation_fps            = -1; // -1 inherits the preset
+	QString                cpu_hybrid                  = QStringLiteral("preset");
 	int                    gpu_index                   = -1;
 	bool                   fullscreen_enabled          = false;
 	bool                   hide_cursor_enabled         = false;
@@ -203,6 +206,9 @@ public:
 		user_id                     = other.user_id;
 		audio_input_device          = other.audio_input_device;
 		present_mode                = other.present_mode;
+		presentation_clock          = other.presentation_clock;
+		presentation_fps            = other.presentation_fps;
+		cpu_hybrid                  = other.cpu_hybrid;
 		gpu_index                   = other.gpu_index;
 		fullscreen_enabled          = other.fullscreen_enabled;
 		hide_cursor_enabled         = other.hide_cursor_enabled;

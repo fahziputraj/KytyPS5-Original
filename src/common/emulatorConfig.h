@@ -64,6 +64,8 @@ struct ConfigOptions {
 	uint32_t               audio_objects_volume           = 100;
 	bool                   audio_objects_enabled          = true;
 	PresentMode            present_mode                = PresentMode::Mailbox;
+	std::optional<bool>     independent_presentation;
+	std::optional<uint32_t> presentation_fps;
 	int32_t                gpu_index                   = -1;
 	bool                   fullscreen_enabled          = false;
 	bool                   hide_cursor_enabled         = false;
@@ -115,6 +117,8 @@ uint32_t GetAudioPadSpeakerOnMainVolume();
 uint32_t GetAudioObjectsVolume();
 bool     AudioObjectsEnabled();
 PresentMode GetPresentMode();
+bool                                  IndependentPresentationEnabled();
+uint32_t                              GetPresentationFps();
 int32_t GetGpuIndex();
 bool     FullscreenEnabled();
 bool     HideCursorEnabled();

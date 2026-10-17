@@ -1,6 +1,7 @@
 #include "loader/gamePatch.h"
 
 #include "common/assert.h"
+#include "common/emulatorConfig.h"
 #include "common/logging/log.h"
 #include "common/stringUtils.h"
 #include "common/virtualMemory.h"
@@ -9,6 +10,7 @@
 #include "loader/gamePatchFilter.h"
 #include "loader/runtimeLinker.h"
 #include "loader/simulationClock.h"
+#include "loader/simulationClockProfile.h"
 #include "loader/systemContent.h"
 
 #include <algorithm>
@@ -46,7 +48,7 @@ struct Plan {
 	std::vector<std::string> mod_names;
 	std::vector<uint64_t>    cave_pages;
 	uint32_t                 presentation_fps = 0;
-	std::optional<uint64_t>  simulation_clock;
+	std::optional<SimulationClockProfile> simulation_clock;
 };
 
 using Json = nlohmann::json;
@@ -56,7 +58,7 @@ std::vector<uint64_t> g_applied_cave_pages;
 std::atomic<uint32_t> g_presentation_fps {0};
 std::atomic<bool>     g_simulation_active {false};
 std::mutex            g_simulation_mutex;
-uint64_t              g_simulation_address  = 0;
+std::vector<ClockField> g_simulation_fields;
 uint64_t              g_simulation_previous = 0;
 SimulationClock       g_simulation_clock;
 
@@ -132,11 +134,12 @@ bool LoadPlan(const std::filesystem::path& path, Plan* plan, std::string* error)
 		}
 		const auto name = mod["name"].get<std::string>();
 		if (mod.contains("simulation_clock")) {
-			if (plan->simulation_clock.has_value() || !mod["simulation_clock"].is_string()) {
+			SimulationClockProfile profile;
+			if (plan->simulation_clock.has_value() ||
+			    !ParseSimulationClockProfile(mod["simulation_clock"], profile)) {
 				return Fail(error, "invalid or conflicting simulation clock");
 			}
-			plan->simulation_clock =
-			    std::stoull(mod["simulation_clock"].get<std::string>(), nullptr, 16);
+			plan->simulation_clock = std::move(profile);
 		}
 		if (mod.contains("presentation_fps")) {
 			const auto& fps = mod["presentation_fps"];
@@ -160,18 +163,17 @@ bool LoadPlan(const std::filesystem::path& path, Plan* plan, std::string* error)
 		}
 	}
 	if (plan->simulation_clock.has_value()) {
-		const auto address = *plan->simulation_clock;
-		const auto guarded =
-		    std::any_of(plan->writes.begin(), plan->writes.end(), [&](const Write& write) {
-			    return address % 8 == 0 && address >= write.source_address &&
-			           address - write.source_address <= write.off.size() &&
-			           write.off.size() - (address - write.source_address) >= 24 &&
-			           std::any_of(write.off.begin(), write.off.end(),
-			                       [](uint8_t byte) { return byte != 0; });
-		    });
-		if (!guarded || plan->presentation_fps != 60) {
+		const auto& profile = *plan->simulation_clock;
+		for (const auto& field: profile.fields) {
+			if (std::none_of(plan->writes.begin(), plan->writes.end(), [&](const Write& write) {
+				    return IsClockFieldGuarded(field, write.source_address, write.off);
+			    })) {
+				return Fail(error, "every simulation clock field requires an original-byte guard");
+			}
+		}
+		if (plan->presentation_fps != static_cast<uint32_t>(std::ceil(profile.nominal_fps))) {
 			return Fail(error,
-			            "simulation clock requires a guarded 24-byte block and a 60 FPS limit");
+			            "simulation clock requires a presentation limit matching its nominal rate");
 		}
 	}
 	return true;
@@ -338,9 +340,8 @@ bool Apply(const std::filesystem::path& plan_path, Program* main_program,
 		return true;
 	}
 	if (plan.presentation_fps != 0) {
-		const auto* when_ready = std::getenv("KYTY_PRESENT_WHEN_READY");
-		if (when_ready == nullptr || std::strcmp(when_ready, "1") != 0) {
-			::printf("Game cheat error: timing patch requires KYTY_PRESENT_WHEN_READY=1\n");
+		if (!Config::IndependentPresentationEnabled()) {
+			::printf("Game cheat error: timing patch requires independent presentation\n");
 			return false;
 		}
 	}
@@ -381,11 +382,16 @@ bool ApplyPending(Program* program) {
 	}
 	if (g_pending_plan->simulation_clock.has_value()) {
 		std::lock_guard lock(g_simulation_mutex);
-		Translate(*program, source_base, *g_pending_plan->simulation_clock, &g_simulation_address);
+		const auto&     profile = *g_pending_plan->simulation_clock;
+		g_simulation_fields     = profile.fields;
+		for (auto& field: g_simulation_fields) {
+			Translate(*program, source_base, field.address, &field.address);
+		}
 		g_simulation_previous = 0;
-		g_simulation_clock.Reset();
+		EXIT_IF(!g_simulation_clock.Configure(profile.nominal_fps, profile.minimum_fps));
 		g_simulation_active.store(true, std::memory_order_release);
-		::printf("Game simulation clock: adaptive 60-to-30 FPS timestep enabled\n");
+		::printf("Game simulation clock: adaptive %.2f-to-%.2f FPS, %zu guarded field(s)\n",
+		         profile.nominal_fps, profile.minimum_fps, profile.fields.size());
 	}
 	if (g_pending_plan->presentation_fps != 0) {
 		g_presentation_fps.store(g_pending_plan->presentation_fps, std::memory_order_relaxed);
@@ -406,28 +412,24 @@ void OnPresentedFrame(uint64_t now, uint64_t frequency) {
 		return;
 	}
 	std::lock_guard lock(g_simulation_mutex);
-	if (g_simulation_address == 0 || frequency == 0) {
+	if (g_simulation_fields.empty() || frequency == 0) {
 		return;
 	}
 	const double elapsed        = g_simulation_previous != 0 && now > g_simulation_previous
 	                                  ? static_cast<double>(now - g_simulation_previous) / frequency
 	                                  : 0.0;
 	g_simulation_previous       = now;
-	const auto     step         = g_simulation_clock.Advance(elapsed);
-	const double   rate         = 1.0 / step;
-	const float    seconds      = static_cast<float>(step);
-	const uint64_t microseconds = static_cast<uint64_t>(step * 1'000'000.0);
-	std::memcpy(reinterpret_cast<void*>(g_simulation_address), &rate, sizeof(rate));
-	std::memcpy(reinterpret_cast<void*>(g_simulation_address + 8), &seconds, sizeof(seconds));
-	std::memcpy(reinterpret_cast<void*>(g_simulation_address + 16), &microseconds,
-	            sizeof(microseconds));
+	const auto step             = g_simulation_clock.Advance(elapsed);
+	for (const auto& field: g_simulation_fields) {
+		StoreClockStep(field, step);
+	}
 }
 
 void Clear() {
 	{
 		std::lock_guard lock(g_simulation_mutex);
 		g_simulation_active.store(false, std::memory_order_release);
-		g_simulation_address  = 0;
+		g_simulation_fields.clear();
 		g_simulation_previous = 0;
 		g_simulation_clock.Reset();
 	}

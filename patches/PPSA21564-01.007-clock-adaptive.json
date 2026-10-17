@@ -22,7 +22,15 @@
       ],
       "id": "codex.astro.clock-adaptive",
       "presentation_fps": 60,
-      "simulation_clock": "08FD4040"
+      "simulation_clock": {
+        "nominal_fps": 60,
+        "minimum_fps": 30,
+        "fields": [
+          { "offset": "08FD4040", "value": "rate_f64" },
+          { "offset": "08FD4048", "value": "seconds_f32" },
+          { "offset": "08FD4050", "value": "microseconds_u64" }
+        ]
+      }
     }
   ]
 }

@@ -88,12 +88,7 @@ enum class VideoOutEventKind : uintptr_t {
 enum class FlipRequestSource { Cpu, GpuEop };
 
 static uint32_t PresentationFpsLimit() {
-	static const uint32_t limit = [] {
-		const auto* value = std::getenv("KYTY_PRESENT_FPS");
-		return value == nullptr
-		           ? 0u
-		           : static_cast<uint32_t>(std::clamp(std::strtol(value, nullptr, 10), 0L, 240L));
-	}();
+	static const uint32_t limit         = Config::GetPresentationFps();
 	const auto patched_limit = Loader::GamePatch::PresentationFpsLimit();
 	return patched_limit != 0 ? patched_limit : limit;
 }
@@ -101,10 +96,7 @@ static uint32_t PresentationFpsLimit() {
 // Opt-in variable presentation. The guest clock always retains the configured
 // frequency; neither hardware VRR nor this mode changes a game's fixed timestep.
 static bool PresentWhenReady() {
-	static const bool enabled = [] {
-		const auto* value = std::getenv("KYTY_PRESENT_WHEN_READY");
-		return value != nullptr && std::strcmp(value, "1") == 0;
-	}();
+	static const bool enabled = Config::IndependentPresentationEnabled();
 	return enabled;
 }
 

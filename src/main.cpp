@@ -127,6 +127,10 @@ static void PrintUsage() {
 	         "                                       1|0|auto overrides).\n");
 	::printf("  --no-amd-cpu                         Turn Intel CPU compatibility off on a non-AMD CPU.\n");
 	::printf("  --vblank-frequency <num>             Virtual vblank frequency. Default: 60.\n");
+	::printf("  --presentation-clock <fixed|independent>  Completed-frame delivery, separate from "
+	         "guest vblank.\n");
+	::printf("  --presentation-fps <0-240>           Host frame cap; 0 follows the title's flip "
+	         "interval.\n");
 	::printf("  --console-language <0-29>            Console language. Default: 1 (English US).\n");
 	::printf("  --vulkan-validation <true|false>     Enable Vulkan validation.\n");
 	::printf("  --gpu-assisted-validation <t|f>      Bounds-check shader accesses on the GPU.\n"
@@ -468,6 +472,19 @@ static bool ParseArgs(int argc, char* argv[], RunOptions& options, bool& show_he
 				::printf("invalid present mode: %s\n", value.c_str());
 				return false;
 			}
+		} else if (arg == "--presentation-clock") {
+			if (value != "fixed" && value != "independent") {
+				::printf("invalid presentation clock: %s\n", value.c_str());
+				return false;
+			}
+			options.config.independent_presentation = value == "independent";
+		} else if (arg == "--presentation-fps") {
+			uint32_t fps = 0;
+			if (!ParseUint32(value, fps) || fps > 240) {
+				::printf("invalid presentation FPS (expected 0-240): %s\n", value.c_str());
+				return false;
+			}
+			options.config.presentation_fps = fps;
 		} else if (arg == "--gpu") {
 			if (!ParseInt32(value, options.config.gpu_index)) {
 				::printf("invalid gpu index: %s\n", value.c_str());

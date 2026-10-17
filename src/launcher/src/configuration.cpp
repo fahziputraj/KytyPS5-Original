@@ -8,6 +8,9 @@ QVariantMap Configuration::GameSettings() const {
 	KYTY_CFG_SET(user_id);
 	KYTY_CFG_SET(audio_input_device);
 	KYTY_CFG_SET(present_mode);
+	KYTY_CFG_SET(presentation_clock);
+	KYTY_CFG_SET(presentation_fps);
+	KYTY_CFG_SET(cpu_hybrid);
 	KYTY_CFG_SET(gpu_index);
 	KYTY_CFG_SET(fullscreen_enabled);
 	KYTY_CFG_SET(hide_cursor_enabled);
@@ -50,6 +53,18 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 	                         : Config::DEFAULT_USER_ID;
 	audio_input_device = s.value("audio_input_device", audio_input_device).toString();
 	KYTY_CFG_GET(present_mode);
+	presentation_clock = s.value("presentation_clock", QStringLiteral("preset")).toString();
+	if (presentation_clock != "independent" && presentation_clock != "fixed") {
+		presentation_clock = QStringLiteral("preset");
+	}
+	presentation_fps = s.value("presentation_fps", -1).toInt();
+	if (presentation_fps < -1 || presentation_fps > 240) {
+		presentation_fps = -1;
+	}
+	cpu_hybrid = s.value("cpu_hybrid", QStringLiteral("preset")).toString();
+	if (cpu_hybrid != "on" && cpu_hybrid != "off" && cpu_hybrid != "background") {
+		cpu_hybrid = QStringLiteral("preset");
+	}
 	gpu_index = s.value("gpu_index", -1).toInt();
 	if (EnumToText(present_mode).isEmpty()) {
 		present_mode = PresentMode::Mailbox;

@@ -21,6 +21,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QRadioButton>
 #include <QRegularExpression>
 #include <QSettings>
@@ -274,6 +275,12 @@ static QStringList CreateEmulatorArgs(const Configuration& info) {
 		args << "--gpu-occlusion" << "on";
 	}
 	args << "--present-mode" << EnumToText(info.present_mode);
+	if (info.presentation_clock != QStringLiteral("preset")) {
+		args << "--presentation-clock" << info.presentation_clock;
+	}
+	if (info.presentation_fps >= 0) {
+		args << "--presentation-fps" << QString::number(info.presentation_fps);
+	}
 	if (info.gpu_index >= 0) {
 		args << "--gpu" << QString::number(info.gpu_index);
 	}
@@ -493,6 +500,11 @@ void MainDialog::RunInterpreter(QProcess* process, const Configuration& info) {
 	process->setArguments(args);
 #endif
 	process->setWorkingDirectory(dir.path());
+	if (info.cpu_hybrid != QStringLiteral("preset")) {
+		auto environment = QProcessEnvironment::systemEnvironment();
+		environment.insert(QStringLiteral("KYTY_CPU_HYBRID"), info.cpu_hybrid);
+		process->setProcessEnvironment(environment);
+	}
 #if defined(_WIN32)
 	process->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {
 		args->flags |= static_cast<uint32_t>(CREATE_NEW_CONSOLE);

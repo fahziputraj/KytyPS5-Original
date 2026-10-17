@@ -1,5 +1,5 @@
 param(
-    [string[]]$Targets = @('launcher', 'kyty_emulator', 'cpu_placement_tests', 'presentation_timing_tests'),
+    [string[]]$Targets = @('launcher', 'kyty_emulator', 'cpu_placement_tests', 'presentation_timing_tests', 'simulation_clock_profile_tests', 'presentation_config_tests'),
     [switch]$Configure,
     [int]$Jobs = 10
 )

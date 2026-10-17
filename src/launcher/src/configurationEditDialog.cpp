@@ -3,7 +3,6 @@
 #include "common/emulatorConfig.h"
 #include "configuration.h"
 #include "mandatoryLineEdit.h"
-#include <SDL3/SDL.h>
 
 #include <QAbstractItemView>
 #include <QCheckBox>
@@ -31,6 +30,9 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 #include <QtAlgorithms>
+
+#include <SDL3/SDL.h>
+#include <algorithm>
 
 #if QT_CONFIG(vulkan)
 #include <QVulkanInstance>
@@ -284,6 +286,24 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 	microphone->setCurrentIndex(microphone->findData(info.audio_input_device));
 	ListInit(m_ui->comboBox_screen_resolution, info.screen_resolution);
 	ListInit(m_ui->comboBox_present_mode, info.present_mode);
+	const auto add_mode = [](QComboBox* box, const QString& preset, const QString& independent,
+	                         const QString& fixed, const QString& selected) {
+		box->clear();
+		box->addItem(preset, QStringLiteral("preset"));
+		box->addItem(independent, QStringLiteral("independent"));
+		box->addItem(fixed, QStringLiteral("fixed"));
+		box->setCurrentIndex(std::max(0, box->findData(selected)));
+	};
+	add_mode(m_ui->comboBox_presentation_clock, tr("Preset"), tr("Independent (variable FPS)"),
+	         tr("Fixed (legacy)"), info.presentation_clock);
+	m_ui->spinBox_presentation_fps->setValue(info.presentation_fps);
+	auto* cpu_mode = m_ui->comboBox_cpu_hybrid;
+	cpu_mode->clear();
+	cpu_mode->addItem(tr("Preset"), QStringLiteral("preset"));
+	cpu_mode->addItem(tr("P-cores for graphics, E-cores for background"), QStringLiteral("on"));
+	cpu_mode->addItem(tr("E-cores for background only"), QStringLiteral("background"));
+	cpu_mode->addItem(tr("System default"), QStringLiteral("off"));
+	cpu_mode->setCurrentIndex(std::max(0, cpu_mode->findData(info.cpu_hybrid)));
 	m_ui->comboBox_gpu->clear();
 	m_ui->comboBox_gpu->addItem(tr("Auto"));
 	// Keep Auto when Qt is built without Vulkan support.
@@ -486,6 +506,9 @@ static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, boo
 	    TextToEnum<Configuration::Resolution>(ui.comboBox_screen_resolution->currentText());
 	info.present_mode =
 	    TextToEnum<Configuration::PresentMode>(ui.comboBox_present_mode->currentText());
+	info.presentation_clock        = ui.comboBox_presentation_clock->currentData().toString();
+	info.presentation_fps          = ui.spinBox_presentation_fps->value();
+	info.cpu_hybrid                = ui.comboBox_cpu_hybrid->currentData().toString();
 	info.gpu_index                 = ui.comboBox_gpu->currentIndex() - 1;
 	info.fullscreen_enabled        = ui.checkBox_fullscreen->isChecked();
 	info.hide_cursor_enabled       = ui.checkBox_hide_cursor->isChecked();

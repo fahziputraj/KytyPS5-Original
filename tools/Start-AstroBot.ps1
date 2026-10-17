@@ -43,6 +43,7 @@ $taskAccurate = $Graphics -eq 'Accurate'
 $taskArgs = @('--game', $taskGame, '--redzone', '--amd-cpu', '--gpu', '0',
     '--screen-width', [string]$Width, '--screen-height', [string]$Height, '--present-mode', 'Fifo',
     '--vblank-frequency', '60', '--gpu-occlusion', $(if ($taskAccurate) { 'on' } else { 'off' }), '--tessellation',
+    '--presentation-clock', $(if ($Timing -eq 'Variable') { 'independent' } else { 'fixed' }), '--presentation-fps', [string]$Fps,
     '--shader-log-direction', 'Silent', '--shader-validation', 'false',
     '--vulkan-validation', 'false', '--readback-linear-images', $taskAccurate.ToString().ToLowerInvariant(),
     '--sync-raw-image-buffers', $taskAccurate.ToString().ToLowerInvariant(), '--printf-direction', $(if ($LogOutput) { 'File' } else { 'Silent' }))

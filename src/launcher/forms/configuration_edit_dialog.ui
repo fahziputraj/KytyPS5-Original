@@ -329,6 +329,41 @@
           <property name="text"><string>Accurate texture synchronization</string></property>
          </widget>
         </item>
+        <item row="12" column="0">
+         <widget class="QLabel" name="label_presentation_clock">
+          <property name="text"><string>Frame delivery:</string></property>
+         </widget>
+        </item>
+        <item row="12" column="1">
+         <widget class="QComboBox" name="comboBox_presentation_clock">
+          <property name="toolTip"><string>Independent delivery presents completed frames while the guest display clock keeps its configured rate. Games with fixed simulation steps still need a compatible timing patch.</string></property>
+         </widget>
+        </item>
+        <item row="13" column="0">
+         <widget class="QLabel" name="label_presentation_fps">
+          <property name="text"><string>Frame limit:</string></property>
+         </widget>
+        </item>
+        <item row="13" column="1">
+         <widget class="QSpinBox" name="spinBox_presentation_fps">
+          <property name="toolTip"><string>Preset inherits the launch profile. Zero follows the game's flip interval. A compatible timing patch can require its own frame limit.</string></property>
+          <property name="minimum"><number>-1</number></property>
+          <property name="maximum"><number>240</number></property>
+          <property name="specialValueText"><string>Preset</string></property>
+          <property name="suffix"><string> FPS</string></property>
+          <property name="value"><number>-1</number></property>
+         </widget>
+        </item>
+        <item row="14" column="0">
+         <widget class="QLabel" name="label_cpu_hybrid">
+          <property name="text"><string>CPU scheduling:</string></property>
+         </widget>
+        </item>
+        <item row="14" column="1">
+         <widget class="QComboBox" name="comboBox_cpu_hybrid">
+          <property name="toolTip"><string>On hybrid CPUs, prefer performance cores for graphics helpers and efficiency cores for background compilation. CPUs with one core class keep their existing placement.</string></property>
+         </widget>
+        </item>
        </layout>
       </widget>
      </item>
