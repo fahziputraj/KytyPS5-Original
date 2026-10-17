@@ -26,3 +26,11 @@ with maintained game pace. Keep the fixed 30 FPS entry point as the default and
 offer the bounded 30-60 FPS experiment as a separate launch option. Validate it
 using a save copy; do not claim full-speed gameplay below its 30 FPS floor or
 correct gameplay pace from the FPS counter alone.
+
+The latest request extends the reusable controls to other games and investigates
+FSR frame generation. Work on `codex/test-global-pacing-fsr` and commit there
+first; the intended proposal target is Jetsku's fork. Preserve the working Astro
+profile. Global presentation/CPU controls do not authorize guessing game clock
+addresses or FSR guide textures. See `docs/GLOBAL-PACING-FSR-PROPOSAL.md` for the
+typed clock schema, optional SDK GPU prototype, validation and remaining game
+integration prerequisites.

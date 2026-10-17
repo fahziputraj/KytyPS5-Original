@@ -685,6 +685,22 @@ add_executable(presentation_config_tests EXCLUDE_FROM_ALL
 target_link_libraries(presentation_config_tests PRIVATE common)
 target_include_directories(presentation_config_tests PRIVATE ${inc_headers})
 
+# Optional, isolated SDK/GPU prototype. No automatic download and no guessed
+# depth/motion inputs are introduced into normal game presentation.
+set(KYTY_FSR3_SDK_ROOT "" CACHE PATH "Prepared FidelityFX 1.1.4 SDK package for the offscreen Vulkan probe")
+if(WIN32 AND KYTY_FSR3_SDK_ROOT)
+	if(NOT EXISTS "${KYTY_FSR3_SDK_ROOT}/ffx-api/include/ffx_api/ffx_api.h")
+		message(FATAL_ERROR "Run tools/prepare-fidelityfx.py and point KYTY_FSR3_SDK_ROOT at sdk-package")
+	endif()
+	add_library(kyty_fsr3_backend STATIC EXCLUDE_FROM_ALL
+		"${KYTY_SOURCE_DIR}/graphics/presentation/frameGeneration/fsr3Backend.cpp")
+	target_include_directories(kyty_fsr3_backend PUBLIC ${KYTY_SOURCE_DIR}
+		PRIVATE "${KYTY_FSR3_SDK_ROOT}/ffx-api/include")
+	target_link_libraries(kyty_fsr3_backend PUBLIC Vulkan::Headers)
+	add_executable(fsr3_vulkan_probe EXCLUDE_FROM_ALL "${KYTY_TESTS_DIR}/Fsr3VulkanProbe.cpp")
+	target_link_libraries(fsr3_vulkan_probe kyty_fsr3_backend)
+endif()
+
 add_executable(cpu_placement_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/CpuPlacementTests.cpp"
 )

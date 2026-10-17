@@ -1,9 +1,11 @@
 param(
     [string[]]$Targets = @('launcher', 'kyty_emulator', 'cpu_placement_tests', 'presentation_timing_tests', 'simulation_clock_profile_tests', 'presentation_config_tests'),
     [switch]$Configure,
+    [switch]$Fsr3Probe,
     [int]$Jobs = 10
 )
 $ErrorActionPreference = 'Stop'
+if ($Fsr3Probe) { $Configure = $true }
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $taskToolRoot = 'C:\Users\fahzi\Documents\Codex\2026-10-15\he\work'
 $taskCompiler = Join-Path $taskToolRoot 'toolchain\LLVM\bin'
@@ -55,9 +57,13 @@ try {
             '-DFETCHCONTENT_SOURCE_DIR_ZSTD=C:/kyty-build-fahzi/_deps/zstd-src',
             '-DFETCHCONTENT_SOURCE_DIR_ZARCHIVE_SOURCE=C:/kyty-build-fahzi/_deps/zarchive_source-src'
         )
+        if ($Fsr3Probe) {
+            $taskOptions += '-DKYTY_FSR3_SDK_ROOT=' + (Join-Path $taskRepo '_Build\deps\fidelityfx-1.1.4\sdk-package')
+        }
         & $taskCmake @taskOptions
         if ($LASTEXITCODE -ne 0) { throw "Configure failed: $LASTEXITCODE" }
     }
+    if ($Fsr3Probe) { $Targets += 'fsr3_vulkan_probe' }
     & $taskCmake --build $taskBuild --target @Targets --parallel $Jobs
     if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
 } finally {
