@@ -15,8 +15,8 @@ inline VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL NoDeviceProc(VkDevice, const cha
 
 inline DlssApplication Application() {
 	// Test fixture only. No NGX application identity or SDK runtime is used.
-	return {"86294c1e-06d4-45d1-91c1-40ae92ea4091", "test-1", "C:/dlss-test-data",
-	        "C:/dlss-test-features"};
+	const auto root = std::filesystem::temp_directory_path() / "KytyDlssCpuFixtures";
+	return {"86294c1e-06d4-45d1-91c1-40ae92ea4091", "test-1", root / "data", root / "features"};
 }
 inline DlssOptions Options() { return {1280, 720, 1920, 1080, DlssQuality::Quality}; }
 inline DlssDevice Device() {
