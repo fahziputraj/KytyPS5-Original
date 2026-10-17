@@ -4,6 +4,7 @@ param(
     [string]$CxxCompiler = '',
     [string]$CxxCompilerArgument = '',
     [string]$FsrSdkRoot = '',
+    [string]$DlssSdkRoot = '',
     [ValidateRange(1, 64)][int]$Jobs = 4
 )
 $ErrorActionPreference = 'Stop'
@@ -25,7 +26,7 @@ if (!(Test-Path -LiteralPath $taskCmake -PathType Leaf)) {
 $taskCtest = Join-Path (Split-Path -Parent $taskCmake) 'ctest.exe'
 if (!(Test-Path -LiteralPath $taskCtest)) { throw "CTest is missing beside CMake: $taskCtest" }
 $taskOptions = @('-S', (Join-Path $taskRepo 'tests\temporal'), '-B', $taskBuild,
-    '-G', $Generator, '-DCMAKE_BUILD_TYPE=Release', "-DKYTY_FSR3_SDK_ROOT=$FsrSdkRoot")
+    '-G', $Generator, '-DCMAKE_BUILD_TYPE=Release', "-DKYTY_FSR3_SDK_ROOT=$FsrSdkRoot", "-DKYTY_DLSS_SDK_ROOT=$DlssSdkRoot")
 if ($CxxCompiler) { $taskOptions += "-DCMAKE_CXX_COMPILER=$CxxCompiler" }
 if ($CxxCompilerArgument) { $taskOptions += "-DCMAKE_CXX_COMPILER_ARG1=$CxxCompilerArgument" }
 & $taskCmake @taskOptions

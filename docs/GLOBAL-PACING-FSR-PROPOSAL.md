@@ -140,10 +140,13 @@ retain the global frame-delivery controls but cannot select this Astro profile.
 4. Validate graphics, input latency, pause/resize/device-loss cleanup and GPU
    cost in gameplay before enabling an opt-in game mode.
 
-The available local title is Astro Bot PPSA21564 01.007. Its FSR guide resources
-have not yet been verified. The researched forks do not supply a validated FSR
-adapter for that exact executable. This is the specific remaining prerequisite,
-not something that a global FPS setting can infer safely.
+The original development target was Astro Bot PPSA21564 01.007. The subsequent
+integration checkpoint implements a restricted adapter for that executable;
+in-game FSR dispatch, image quality and pacing still require RTX validation.
+On the current iGPU machine the available game is PPSA21567 01.019 on F:, which
+is outside those version checks. A global FPS setting cannot infer its guides
+or justify reusing the older clock addresses. The optional
+[DLSS SR backend](DLSS-BACKEND.md) is also separate from game presentation.
 
 ## Primary references and reviewed implementations
 

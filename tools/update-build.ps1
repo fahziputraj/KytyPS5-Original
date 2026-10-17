@@ -3,6 +3,7 @@ param(
     [switch]$PrepareOnly,
     [switch]$Fsr3Probe,
     [switch]$SkipFsr3GpuTest,
+    [switch]$DlssPrototype,
     [string]$Destination = 'E:\KytyPS5-Build',
     [string]$ToolchainConfig = '',
     [ValidateRange(1,64)][int]$Jobs = 3,
@@ -22,11 +23,15 @@ if (!$SkipBuild) {
     $taskBuildOptions = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'build-windows-local.ps1'), '-Configure', '-Destination', $taskDestination, '-Jobs', $Jobs)
     if ($ToolchainConfig) { $taskBuildOptions += @('-ToolchainConfig', $ToolchainConfig) }
     if ($Fsr3Probe) { $taskBuildOptions += '-Fsr3Probe' }
+    if ($DlssPrototype) { $taskBuildOptions += '-DlssPrototype' }
     & powershell @taskBuildOptions
     if ($LASTEXITCODE -ne 0) { throw 'Build failed; installed binaries were not updated.' }
 }
 $env:PATH = "$(Join-Path $taskBuild 'launcher');$($taskTools.QtRoot)\bin;$env:PATH"
-& "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|controller_settings|temporal_camera|temporal_input|cpu_placement.*)$'
+$taskTestPattern = '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|controller_settings|temporal_camera|temporal_input|cpu_placement.*|dlss_backend'
+if ($DlssPrototype) { $taskTestPattern += '|dlss_ngx_mapping|dlss_ngx_link_no_gpu' }
+$taskTestPattern += ')$'
+& "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R $taskTestPattern
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed; installed binaries were not updated.' }
 Invoke-KytyPgoSource -Repository $taskRepo -Action {
     param($taskSourceLink)
@@ -94,6 +99,28 @@ if ($Fsr3Probe) {
     $taskFsrInfo['gpu_probe_status'] = $(if ($SkipFsr3GpuTest) { 'not_run' } else { 'passed' })
     $taskFsrInfo['validation'] = $(if ($SkipFsr3GpuTest) { 'Compiled and bundled only; GPU probe and gameplay validation pending' } else { 'Six offscreen Vulkan interpolation dispatches and generated-frame readback; no guest presentation tested' })
 }
+$taskDlssInfo = [ordered]@{ prototype_bundled = $false; in_game_enabled = $false; frame_generation_implemented = $false }
+if ($DlssPrototype) {
+    $taskDlssRoot = Join-Path $taskRepo '_Build\deps\dlss-310.9.16'
+    $taskNgxLibrary = Join-Path $taskDlssRoot 'lib\Windows_x86_64\x64\nvsdk_ngx_d.lib'
+    if ((Get-FileHash -LiteralPath $taskNgxLibrary).Hash -ne 'BC43DF9EC032004FDE681D3E3AFD01CDE239E03A0125B822E88674C84287F99C') {
+        throw 'The DLSS NGX library does not match the pinned SDK.'
+    }
+    $taskDlssDestination = Join-Path $taskStage 'Experiments\DLSS'
+    New-Item -ItemType Directory -Path $taskDlssDestination -Force | Out-Null
+    foreach ($taskName in @('dlss_backend_tests.exe','dlss_ngx_tests.exe','dlss_ngx_link_check.exe')) {
+        Copy-Item -LiteralPath (Join-Path $taskBuild $taskName) -Destination $taskDlssDestination -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Run-DLSS-Checks.cmd'),(Join-Path $taskRepo 'docs\DLSS-BACKEND.md') -Destination $taskDlssDestination -Force
+    Copy-Item -LiteralPath (Join-Path $taskDlssRoot 'LICENSE.txt') -Destination (Join-Path $taskDlssDestination 'LICENSE-NVIDIA-RTX-SDK.txt') -Force
+    $taskDlssInfo['prototype_bundled'] = $true
+    $taskDlssInfo['sdk'] = '310.9.16'
+    $taskDlssInfo['sdk_commit'] = '9981c6350dc58c0ce21f024fd65e31e851c31689'
+    $taskDlssInfo['ngx_library_sha256'] = (Get-FileHash -LiteralPath $taskNgxLibrary).Hash
+    $taskDlssInfo['validation'] = 'CPU backend and stub NGX mapping tests; real NGX link only'
+    $taskDlssInfo['gpu_execution'] = 'not_run'
+    $taskDlssInfo['feature_dll_bundled'] = $false
+}
 $taskManifest = [ordered]@{
     distribution = 'Local build based on Jetsku int19.1'
     source = $taskRepo
@@ -104,9 +131,10 @@ $taskManifest = [ordered]@{
     built_at = [DateTimeOffset]::Now.ToString('o')
     emulator_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'kyty_emulator.exe') -Algorithm SHA256).Hash
     launcher_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'launcher.exe') -Algorithm SHA256).Hash
-    tests = 'Controller motion/history, presentation timing/configuration, typed simulation profiles, launcher persistence/inheritance, temporal camera/input guards, CPU placement including hybrid and recorder modes'
+    tests = 'Controller motion/history, presentation timing/configuration, typed simulation profiles, launcher persistence/inheritance, temporal camera/input guards, CPU placement including hybrid and recorder modes; DLSS CPU contracts and optional NGX mapping/link checks'
     global_controls = 'Independent or fixed presentation, FPS limit, CPU scheduling; simulation pace requires a validated engine profile'
     fsr3 = $taskFsrInfo
+    dlss = $taskDlssInfo
     astro_clock = '01.007.000 guarded 30 FPS default; optional experimental adaptive 30-60 FPS clock'
     adaptive_clock_default = $false
     graphics_profile = $GraphicsProfile

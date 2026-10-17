@@ -690,6 +690,8 @@ target_include_directories(presentation_config_tests PRIVATE ${inc_headers})
 
 # Optional, isolated SDK/GPU prototype. No automatic download and no guessed
 # depth/motion inputs are introduced into normal game presentation.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DlssPrototype.cmake")
+
 set(KYTY_FSR3_SDK_ROOT "" CACHE PATH "Prepared FidelityFX 1.1.4 SDK package for the offscreen Vulkan probe")
 if(WIN32 AND KYTY_FSR3_SDK_ROOT)
 	if(NOT EXISTS "${KYTY_FSR3_SDK_ROOT}/ffx-api/include/ffx_api/ffx_api.h")

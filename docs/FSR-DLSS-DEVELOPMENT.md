@@ -67,9 +67,11 @@ updates continue through `tools/update-build.ps1` and its preservation checks.
 
 `temporalInputs.h` describes Vulkan images, camera metadata and real-frame
 history without depending on AMD or NVIDIA SDK headers. The FSR names remain
-aliases so existing callers keep their interface. It is a starting point for a
-future DLSS adapter; DLSS-specific constants, feature checks, SDK loading,
-resource tagging and dispatch are not implemented by this change.
+aliases so existing callers keep their interface. The subsequent optional
+[DLSS backend checkpoint](DLSS-BACKEND.md) adds NGX Vulkan SR discovery,
+capability checks and SDK dispatch bindings, with CPU/stub tests and a real-library
+link check. It is not connected to game presentation. DLSS GPU execution and
+frame generation remain unverified/unimplemented respectively.
 
 Before SDK configuration or dispatch, FSR validates finite camera values,
 orthonormal camera axes, clipping planes, frame time, guide dimensions/formats

@@ -1,13 +1,14 @@
 param(
-    [string[]]$Targets = @('launcher', 'kyty_emulator', 'cpu_placement_tests', 'presentation_timing_tests', 'simulation_clock_profile_tests', 'presentation_config_tests', 'launcher_presentation_config_tests', 'controller_settings_tests', 'controller_probe', 'temporal_camera_tests', 'temporal_input_tests'),
+    [string[]]$Targets = @('launcher', 'kyty_emulator', 'cpu_placement_tests', 'presentation_timing_tests', 'simulation_clock_profile_tests', 'presentation_config_tests', 'launcher_presentation_config_tests', 'controller_settings_tests', 'controller_probe', 'temporal_camera_tests', 'temporal_input_tests', 'dlss_backend_tests'),
     [switch]$Configure,
     [switch]$Fsr3Probe,
+    [switch]$DlssPrototype,
     [string]$Destination = 'E:\KytyPS5-Build',
     [string]$ToolchainConfig = '',
     [ValidateRange(1,64)][int]$Jobs = 3
 )
 $ErrorActionPreference = 'Stop'
-if ($Fsr3Probe) { $Configure = $true }
+if ($Fsr3Probe -or $DlssPrototype) { $Configure = $true }
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $PSScriptRoot 'windows-toolchain.ps1')
 $taskTools = Get-KytyWindowsToolchain -Repository $taskRepo -Configuration $ToolchainConfig
@@ -46,6 +47,8 @@ Invoke-KytyPgoSource -Repository $taskRepo -Action {
         if ($Fsr3Probe) {
             $taskOptions += '-DKYTY_FSR3_SDK_ROOT=' + (Join-Path $taskRepo '_Build\deps\fidelityfx-1.1.4\sdk-package')
         }
+        $taskDlssRoot = $(if ($DlssPrototype) { Join-Path $taskRepo '_Build\deps\dlss-310.9.16' } else { '' })
+        $taskOptions += "-DKYTY_DLSS_SDK_ROOT=$taskDlssRoot"
         & $taskCmake @taskOptions
         if ($LASTEXITCODE -ne 0) { throw "Configure failed: $LASTEXITCODE" }
     }
@@ -53,6 +56,7 @@ Invoke-KytyPgoSource -Repository $taskRepo -Action {
     # Copy the caller's array before appending the optional probe target.
     [string[]]$taskBuildTargets = @($Targets)
     if ($Fsr3Probe) { $taskBuildTargets += 'fsr3_vulkan_probe' }
+    if ($DlssPrototype) { $taskBuildTargets += @('dlss_ngx_tests', 'dlss_ngx_link_check') }
     & $taskCmake --build $taskBuild --target @taskBuildTargets --parallel $Jobs
     if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
 }

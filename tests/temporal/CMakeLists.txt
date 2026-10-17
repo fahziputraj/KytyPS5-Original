@@ -9,6 +9,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 enable_testing()
 get_filename_component(KYTY_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+include("${KYTY_ROOT}/cmake/DlssPrototype.cmake")
+# These targets are explicit-only in the full emulator build; include them in
+# this small CPU developer build, including the optional SDK mapping checks.
+add_custom_target(dlss_developer_checks ALL DEPENDS dlss_backend_tests)
+if(TARGET dlss_ngx_tests)
+    add_dependencies(dlss_developer_checks dlss_ngx_tests)
+endif()
+if(TARGET dlss_ngx_link_check)
+    add_dependencies(dlss_developer_checks dlss_ngx_link_check)
+endif()
 
 foreach(test IN ITEMS TemporalInput TemporalCamera PresentationTiming SimulationClockProfile)
     add_executable(${test}Tests "${KYTY_ROOT}/tests/${test}Tests.cpp")
