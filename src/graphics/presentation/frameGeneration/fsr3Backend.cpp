@@ -74,6 +74,13 @@ bool Fsr3Backend::Initialize(const std::filesystem::path& library, VkDevice devi
 		error = "FSR3 requires an explicit SDK library, valid Vulkan device and display size";
 		return false;
 	}
+	// SDK 1.1.4 queries dedicated-allocation support from the physical device
+	// and then calls this KHR alias, even on a core Vulkan 1.3 device. Refuse a
+	// logical device without the entry point instead of entering a null call.
+	if (!get_proc(device, "vkGetBufferMemoryRequirements2KHR")) {
+		error = "FSR3 SDK requires VK_KHR_get_memory_requirements2 enabled on the logical device";
+		return false;
+	}
 	m_impl->library =
 	    LoadLibraryExW(library.c_str(), nullptr,
 	                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);

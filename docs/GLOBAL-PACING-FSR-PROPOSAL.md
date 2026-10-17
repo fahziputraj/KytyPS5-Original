@@ -85,6 +85,13 @@ only headers, AMD's signed Vulkan library and its license under ignored `_Build`
 It neither vendors nor replaces a system Vulkan library. Check the extracted
 DLL's AMD Authenticode signature before executing the optional test.
 
+SDK 1.1.4 calls `vkGetBufferMemoryRequirements2KHR` when dedicated allocation is
+advertised. The backend rejects a logical device lacking that entry point before
+entering the SDK; the probe enables `VK_KHR_get_memory_requirements2` and
+`VK_KHR_dedicated_allocation`. This avoids a null-call fault on a core-only
+Vulkan device. Shader variants also require enabling the corresponding supported
+16-bit/subgroup features on the logical device, not just querying support.
+
 ```powershell
 _Build/windows-int19/fsr3_vulkan_probe.exe `
   _Build/deps/fidelityfx-1.1.4/sdk-package/PrebuiltSignedDLL/amd_fidelityfx_vk.dll `

@@ -19,6 +19,11 @@ namespace {
 constexpr uint32_t Width = 320, Height = 192;
 constexpr size_t   Pixels = Width * Height, ColorBytes = Pixels * 4;
 
+PFN_vkVoidFunction MissingSdkAlias(VkDevice device, const char* name) {
+	if (std::strcmp(name, "vkGetBufferMemoryRequirements2KHR") == 0) return nullptr;
+	return VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr(device, name);
+}
+
 void Check(bool value, const char* operation) {
 	if (!value) {
 		std::fprintf(stderr, "FSR3 GPU probe failed: %s\n", operation);
@@ -132,9 +137,13 @@ public:
 		queue_create.queueCount       = 1;
 		queue_create.pQueuePriorities = &priority;
 		vk::DeviceCreateInfo device_create {};
-		device_create.pNext                = &features;
-		device_create.queueCreateInfoCount = 1;
-		device_create.pQueueCreateInfos    = &queue_create;
+		const char*          extensions[]     = {VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+		                                         VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME};
+		device_create.enabledExtensionCount   = 2;
+		device_create.ppEnabledExtensionNames = extensions;
+		device_create.pNext                   = &features;
+		device_create.queueCreateInfoCount    = 1;
+		device_create.pQueueCreateInfos       = &queue_create;
 		Require(physical.createDevice(&device_create, nullptr, &device), "create GPU device");
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(device);
 		queue = device.getQueue(family, 0);
@@ -214,11 +223,14 @@ public:
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
+	std::setvbuf(stdout, nullptr, _IONBF, 0);
+	std::setvbuf(stderr, nullptr, _IONBF, 0);
 	if (argc != 3) {
 		std::fprintf(stderr, "Usage: fsr3_vulkan_probe <AMD SDK DLL> <output.ppm>\n");
 		return 1;
 	}
 	Device gpu;
+	std::puts("FSR3 probe: initializing Vulkan");
 	if (!gpu.Initialize()) {
 		std::printf("SKIP: Vulkan 1.3 GPU unavailable\n");
 		return 77;
@@ -230,7 +242,14 @@ int wmain(int argc, wchar_t** argv) {
 	using namespace Libs::Graphics::FrameGeneration;
 	Fsr3Backend backend;
 	std::string error;
-	const bool  initialized =
+	std::puts("FSR3 probe: creating SDK context");
+	const bool missing_alias =
+	    backend.Initialize(std::filesystem::absolute(argv[1]), static_cast<VkDevice>(gpu.device),
+	                       static_cast<VkPhysicalDevice>(gpu.physical), MissingSdkAlias, Width,
+	                       Height, VK_FORMAT_R8G8B8A8_UNORM, error);
+	Check(!missing_alias && error.find("VK_KHR_get_memory_requirements2") != std::string::npos,
+	      "a missing SDK entry point is rejected before context creation");
+	const bool initialized =
 	    backend.Initialize(std::filesystem::absolute(argv[1]), static_cast<VkDevice>(gpu.device),
 	                       static_cast<VkPhysicalDevice>(gpu.physical),
 	                       VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr, Width, Height,
