@@ -49,8 +49,11 @@ Invoke-KytyPgoSource -Repository $taskRepo -Action {
         & $taskCmake @taskOptions
         if ($LASTEXITCODE -ne 0) { throw "Configure failed: $LASTEXITCODE" }
     }
-    if ($Fsr3Probe) { $Targets += 'fsr3_vulkan_probe' }
-    & $taskCmake --build $taskBuild --target @Targets --parallel $Jobs
+    # Windows PowerShell 5 creates a new local variable for += in this scope.
+    # Copy the caller's array before appending the optional probe target.
+    [string[]]$taskBuildTargets = @($Targets)
+    if ($Fsr3Probe) { $taskBuildTargets += 'fsr3_vulkan_probe' }
+    & $taskCmake --build $taskBuild --target @taskBuildTargets --parallel $Jobs
     if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
 }
 exit 0
