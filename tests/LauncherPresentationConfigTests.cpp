@@ -225,6 +225,11 @@ int main(int argc, char** argv) {
 	check(dlss_text.startsWith("DLSS: not available in games.") && dlss_text.contains("310.9.16") &&
 	          dlss_text.contains("no DLSS GPU work has run") && !dlss_text.contains("active"),
 	      "installed DLSS link checks are never reported as an active game feature");
+	dlss_package.gpu_execution = QStringLiteral("offscreen_probe_passed");
+	const auto probed          = TemporalStatus::DlssStatusText(dlss_package);
+	check(probed.startsWith("DLSS: not available in games.") && probed.contains("offscreen") &&
+	          probed.contains("not implemented"),
+	      "a passed DLSS offscreen probe is still not reported as a game feature");
 	QTemporaryDir runtime;
 	check(runtime.isValid() && QDir(runtime.path()).mkpath("Experiments/FSR3"),
 	      "create an isolated runtime folder");

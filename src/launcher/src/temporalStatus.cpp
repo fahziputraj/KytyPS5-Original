@@ -144,7 +144,7 @@ QString DlssStatusText(const DlssPackage& package) {
 	}
 	auto text = Tr("DLSS: not available in games. Experiments/DLSS holds CPU, stub and link "
 	               "development checks only; no DLSS GPU work has run");
-	if (package.gpu_execution == QStringLiteral("passed")) {
+	if (package.gpu_execution == QStringLiteral("offscreen_probe_passed")) {
 		text = Tr("DLSS: not available in games. Its offscreen development probe passed on this "
 		          "build's test GPU; game integration is not implemented");
 	}

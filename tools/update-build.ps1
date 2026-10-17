@@ -4,6 +4,10 @@ param(
     [switch]$Fsr3Probe,
     [switch]$SkipFsr3GpuTest,
     [switch]$DlssPrototype,
+    # Run the DLSS SR offscreen probe (NVIDIA RTX GPU and NVIDIA's signed nvngx_dlss.dll in
+    # -DlssFeatureDirectory). A skip or failure stops the update.
+    [switch]$DlssGpuProbe,
+    [string]$DlssFeatureDirectory = '',
     # Move an installed but unselected Experiments\FSR3 or Experiments\DLSS package into the
     # backup. Without it such a package is retained and reported as retained in BUILD-INFO.json.
     [switch]$RemoveUnselectedPackages,
@@ -44,6 +48,10 @@ if (!$PrepareOnly -and $GraphicsProfile -ne 'Preserve') {
 $taskTools = Get-KytyWindowsToolchain -Repository $taskRepo -Configuration $ToolchainConfig
 $taskCmakeBin = Split-Path -Parent $taskTools.Cmake
 if ($SkipFsr3GpuTest -and !$Fsr3Probe) { throw '-SkipFsr3GpuTest requires -Fsr3Probe.' }
+if ($DlssGpuProbe -and !$DlssPrototype) { throw '-DlssGpuProbe requires -DlssPrototype.' }
+if ($DlssGpuProbe -and !(Test-Path -LiteralPath (Join-Path $DlssFeatureDirectory 'nvngx_dlss.dll') -PathType Leaf)) {
+    throw "-DlssGpuProbe requires -DlssFeatureDirectory with NVIDIA's signed nvngx_dlss.dll."
+}
 if (!$SkipBuild) {
     $taskBuildOptions = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'build-windows-local.ps1'), '-Configure', '-Destination', $taskDestination, '-Jobs', $Jobs)
     if ($ToolchainConfig) { $taskBuildOptions += @('-ToolchainConfig', $ToolchainConfig) }
@@ -169,19 +177,41 @@ if ($DlssPrototype) {
     if ((Get-FileHash -LiteralPath $taskNgxLibrary).Hash -ne 'BC43DF9EC032004FDE681D3E3AFD01CDE239E03A0125B822E88674C84287F99C') {
         throw 'The DLSS NGX library does not match the pinned SDK.'
     }
+    $taskDlssReport = $null
+    if ($DlssGpuProbe) {
+        # The probe exits 77 when it skips; an explicitly requested gate must not pass silently.
+        $ErrorActionPreference = 'Continue'
+        $taskProbeOutput = @(& (Join-Path $taskBuild 'dlss_vulkan_probe.exe') ([IO.Path]::GetFullPath($DlssFeatureDirectory)) `
+            (Join-Path $taskBuild 'dlss-probe-data') (Join-Path $taskBuild 'dlss-probe-output.ppm') 2>&1 | ForEach-Object { "$_" })
+        $taskProbeExit = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
+        $taskProbeOutput | Write-Output
+        if ($taskProbeExit -ne 0) { throw "The DLSS GPU probe did not pass (exit $taskProbeExit; 77 = skipped); installed binaries were not updated." }
+        $taskReportLine = @($taskProbeOutput | Where-Object { $_ -like 'REPORT {*' }) | Select-Object -Last 1
+        if ($taskReportLine) { $taskDlssReport = $taskReportLine.Substring(7) | ConvertFrom-Json }
+    }
     $taskSelectedPackages += 'Experiments\DLSS'
-    foreach ($taskName in @('dlss_backend_tests.exe','dlss_ngx_tests.exe','dlss_ngx_link_check.exe')) {
+    foreach ($taskName in @('dlss_backend_tests.exe','dlss_ngx_tests.exe','dlss_ngx_link_check.exe','dlss_vulkan_probe.exe')) {
         Add-KytyStageFile -Source (Join-Path $taskBuild $taskName) -Relative "Experiments\DLSS\$taskName"
     }
-    Add-KytyStageFile -Source (Join-Path $PSScriptRoot 'Run-DLSS-Checks.cmd') -Relative 'Experiments\DLSS\Run-DLSS-Checks.cmd'
+    foreach ($taskName in @('Run-DLSS-Checks.cmd','Run-DLSS-Probe.cmd')) {
+        Add-KytyStageFile -Source (Join-Path $PSScriptRoot $taskName) -Relative "Experiments\DLSS\$taskName"
+    }
     Add-KytyStageFile -Source (Join-Path $taskRepo 'docs\DLSS-BACKEND.md') -Relative 'Experiments\DLSS\DLSS-BACKEND.md'
     Add-KytyStageFile -Source (Join-Path $taskDlssRoot 'LICENSE.txt') -Relative 'Experiments\DLSS\LICENSE-NVIDIA-RTX-SDK.txt'
     $taskDlssInfo['prototype_bundled'] = $true
     $taskDlssInfo['sdk'] = '310.9.16'
     $taskDlssInfo['sdk_commit'] = '9981c6350dc58c0ce21f024fd65e31e851c31689'
     $taskDlssInfo['ngx_library_sha256'] = (Get-FileHash -LiteralPath $taskNgxLibrary).Hash
-    $taskDlssInfo['validation'] = 'CPU backend and stub NGX mapping tests; real NGX link only'
-    $taskDlssInfo['gpu_execution'] = 'not_run'
+    $taskDlssInfo['offscreen_probe_bundled'] = $true
+    if ($taskDlssReport) {
+        $taskDlssInfo['validation'] = 'CPU backend and stub NGX mapping tests; real NGX link; offscreen SR probe with synthetic frames and readback (no game input or presentation)'
+        $taskDlssInfo['gpu_execution'] = 'offscreen_probe_passed'
+        $taskDlssInfo['gpu_probe_report'] = $taskDlssReport
+    } else {
+        $taskDlssInfo['validation'] = 'CPU backend and stub NGX mapping tests; real NGX link only; offscreen probe bundled but not run'
+        $taskDlssInfo['gpu_execution'] = 'not_run'
+    }
     $taskDlssInfo['feature_dll_bundled'] = $false
 }
 $taskManifest = [ordered]@{

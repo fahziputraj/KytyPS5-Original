@@ -41,5 +41,12 @@ if(KYTY_DLSS_SDK_ROOT)
             "${KYTY_DLSS_NGX_LIBRARY}" version shlwapi)
         add_test(NAME dlss_ngx_link_no_gpu COMMAND dlss_ngx_link_check)
         set_tests_properties(dlss_ngx_link_no_gpu PROPERTIES TIMEOUT 30)
+
+        # Hardware gate, not a CTest: real NGX on an NVIDIA GPU with NVIDIA's signed feature
+        # runtime, synthetic frames and readback. Without both it exits 77 before any NGX call.
+        add_executable(dlss_vulkan_probe EXCLUDE_FROM_ALL "${KYTY_DLSS_ROOT}/tests/DlssVulkanProbe.cpp")
+        target_link_libraries(dlss_vulkan_probe PRIVATE kyty_dlss_backend kyty_dlss_ngx_objects
+            "${KYTY_DLSS_NGX_LIBRARY}" version shlwapi bcrypt wintrust crypt32)
+        target_include_directories(dlss_vulkan_probe PRIVATE "${KYTY_DLSS_SDK_ROOT}/include")
     endif()
 endif()

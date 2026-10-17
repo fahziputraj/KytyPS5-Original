@@ -89,6 +89,52 @@ the real-library link check, `Run-DLSS-Checks.cmd`, this guide and NVIDIA's lice
 The build manifest records GPU execution as `not_run`, no feature DLL bundled,
 no in-game enablement and no DLSS frame-generation implementation.
 
+## Offscreen SR probe (hardware gate)
+
+`tests/DlssVulkanProbe.cpp` builds `dlss_vulkan_probe` with the NGX link targets
+(`-DlssPrototype`) and is packaged in `Experiments/DLSS` with `Run-DLSS-Probe.cmd`.
+It is not a CTest. Run it on an NVIDIA RTX PC with NVIDIA's official signed
+`nvngx_dlss.dll` in a folder you choose:
+
+```powershell
+./_Build/windows-int19/dlss_vulkan_probe.exe <folder with nvngx_dlss.dll> <data dir> out.ppm [--validation]
+./tools/update-build.ps1 -Destination <runtime> -Fsr3Probe -DlssPrototype `
+  -DlssGpuProbe -DlssFeatureDirectory <folder with nvngx_dlss.dll> -Jobs 3
+```
+
+Before any NGX call it requires the feature DLL and an NVIDIA Vulkan GPU, and
+otherwise exits 77 (SKIP). It then records the DLL's SHA-256, file version and
+Authenticode signer (refusing an unsigned or non-NVIDIA file), queries NGX
+instance requirements, creates the instance, queries device support/extensions,
+creates the device with those extensions and every supported core feature, and
+runs `DlssBackend` with the real NGX adapter:
+
+- 640x360 to 1280x720 Performance: eight consecutive frames of a moving square
+  with Halton jitter, forward-Z depth and current-to-previous motion in render
+  pixels (`InMVScale` 1); the output is cleared to a sentinel first, and every
+  frame must overwrite it and keep the static background. From the fourth frame
+  the square must be at its upscaled position and size;
+- a camera cut with reset (no ghost at the old position), duplicate-frame
+  rejection without SDK work, a frame-ID gap, a successful recording that is
+  discarded and followed by reinitialization, an invalid project ID and a second
+  simultaneous adapter (both rejected);
+- 960x540 to 1440x810 Quality as a second configuration;
+- with `--validation`, no Khronos validation-layer errors.
+
+It prints the GPU, driver, NGX extension counts and a `REPORT {...}` line, and
+saves the last output as PPM. `-DlssGpuProbe` makes the updater run it and fail
+on a skip; the manifest then records `gpu_execution: offscreen_probe_passed` and
+the report. The project ID `624b3d1a-e585-43fa-a5d9-19fb002c698e` (engine version
+`kyty-dlss-probe-1`) is a GUID generated for this repository's prototype, not an
+NVIDIA-issued application ID. The jitter and motion conventions follow NVIDIA's
+programming guide; the coarse position/size checks do not prove their signs, so
+inspect the saved image and compare with a deliberately wrong sign if in doubt.
+
+On the iGPU development PC the probe built and linked against the pinned NGX
+library; its missing-runtime and no-NVIDIA-GPU paths exited 77 before any NGX
+call, and `--runtime-info` verified signature/hash code against the signed AMD
+FSR DLL (a stand-in signer, not an NVIDIA runtime). No DLSS GPU work has run.
+
 ## Remaining RTX work
 
 Local verification on 2026-10-17: the seven standalone developer suites passed;
@@ -98,11 +144,10 @@ and passed all 14 focused delivery tests. No DLSS GPU initialization, evaluation
 image readback, gameplay, quality or performance result is established by these
 checks. The emulator and launcher do not link or activate this NGX prototype.
 
-Implement a real Vulkan offscreen probe with allocated images/views, actual NGX
-requirements enabled before device creation, a documented project identity and
-the official signed feature runtime. Submit work, read back images and validate
-camera motion, disocclusion and reset behavior. Record runtime DLL hashes and
-driver versions; API/header linkage does not establish a loaded-runtime version.
+Run the offscreen probe above on an RTX GPU with NVIDIA's signed feature runtime
+(first with `--validation`), keep its output image, log and `REPORT` line, and
+fix whatever it finds before any game integration. API/header linkage alone does
+not establish a loaded-runtime version or GPU behavior.
 
 Then provide verified game scene inputs before integrating into presentation.
 The existing Astro FSR compatibility source retains HUD/TAA and must not be
