@@ -17,6 +17,9 @@ namespace Cheats {
                                            const QString& version, const QString& process);
 [[nodiscard]] QJsonDocument WithSelection(const QJsonDocument& document,
                                           const QList<bool>&   enabled);
+[[nodiscard]] QString       SelectClockProfile(const QJsonDocument&        current,
+                                               const QList<QJsonDocument>& profiles,
+                                               const QString& selected_id, QJsonDocument* result);
 // Refuse to replace a file changed since it was loaded; empty data also permits creation.
 [[nodiscard]] QString SaveDocument(const QString& path, const QJsonDocument& document,
                                    const QByteArray& expected_data);

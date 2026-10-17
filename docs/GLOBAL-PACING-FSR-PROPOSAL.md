@@ -109,6 +109,18 @@ the probe, pinned signed AMD library and license under `Experiments/FSR3` in
 `F:\KytyPS5-Build`. `Run-FSR3-Test.cmd` repeats the offscreen test; it does not
 enable game frame generation. Delivery without this flag requires no SDK.
 
+The launcher settings expose the same offscreen test through **Pacing & frame
+generation > Run FSR3 GPU test**, with output and pass/fail status in a dialog.
+The button is unavailable when the optional test package is missing. The UI
+explicitly reports that in-game frame generation is not implemented.
+
+For the validated Astro Bot 01.007 executable, the game's settings also offer
+fixed 30 FPS, adaptive 30-60 FPS, and the original simulation clock. Saving updates
+the local cheat selection, retains unrelated cheats, and pairs a selected clock
+with independent presentation, its FPS ceiling and 60 Hz guest vblank. The game
+must be relaunched for a change to take effect. Other title/version combinations
+retain the global frame-delivery controls but cannot select this Astro profile.
+
 ### Remaining game integration
 
 1. Capture validated per-frame scene color, depth, motion and camera metadata

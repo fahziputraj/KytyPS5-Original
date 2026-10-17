@@ -1,11 +1,14 @@
 #ifndef CONFIGURATION_EDIT_DIALOG_H
 #define CONFIGURATION_EDIT_DIALOG_H
 
+#include <QByteArray>
 #include <QDialog>
+#include <QJsonDocument>
 #include <QString>
 #include <QStringList>
-class QByteArray;
 class QGroupBox;
+class QComboBox;
+class QLabel;
 class QListWidget;
 class QMoveEvent;
 class QResizeEvent;
@@ -43,11 +46,20 @@ private:
 	QListWidget*                 m_game_dirs_list         = nullptr;
 	QToolButton*                 m_remove_game_dir_button = nullptr;
 	bool                         m_global_settings        = false;
+	QComboBox*                   m_clock_profile          = nullptr;
+	QLabel*                      m_clock_status           = nullptr;
+	QList<QJsonDocument>         m_clock_profiles;
+	QJsonDocument                m_clock_document;
+	QByteArray                   m_clock_data;
+	bool                         m_clock_available = false;
 
 protected:
 	void Init(const Configuration& info);
 	void InitGameDirectories();
 	void DetectMotionControllers();
+	void InitPacingControls();
+	void UpdateClockControls();
+	void RunFsrGpuTest();
 	void AddGameDirectoryItem(const QString& dir);
 
 	void moveEvent(QMoveEvent* event) override;

@@ -1,6 +1,9 @@
+#include "cheatFile.h"
 #include "configuration.h"
 
 #include <QCoreApplication>
+#include <QFile>
+#include <QJsonArray>
 #include <QTemporaryDir>
 
 #include <cstdio>
@@ -21,7 +24,7 @@ int main(int argc, char** argv) {
 	                              {"cpu_hybrid", "on"}},
 	                             error),
 	      "import global/per-game options");
-	config.screen_resolution = Configuration::Resolution::R2560X1440;
+	config.screen_resolution        = Configuration::Resolution::R2560X1440;
 	config.controller.motion_source = QStringLiteral("01000000000000000000000000000000");
 	config.controller.motion_rate   = 125;
 	QTemporaryDir directory;
@@ -74,5 +77,65 @@ int main(int argc, char** argv) {
 	check(legacy.presentation_clock == "preset" && legacy.presentation_fps == -1 &&
 	          legacy.cpu_hybrid == "preset",
 	      "older INI files retain preset inheritance");
+	QList<QJsonDocument> profiles;
+	for (const auto* file_name:
+	     {"PPSA21564-01.007-clock30.json", "PPSA21564-01.007-clock-adaptive.json"}) {
+		QFile file(QStringLiteral(KYTY_CLOCK_PATCH_DIR "/") + QLatin1String(file_name));
+		check(file.open(QIODevice::ReadOnly), "open bundled clock profile");
+		QJsonDocument profile;
+		check(Cheats::ParseDocument(file.readAll(), &profile).isEmpty(),
+		      "parse bundled clock profile");
+		profiles.append(profile);
+	}
+	auto current = profiles.first().object();
+	auto mods    = current.value("mods").toArray();
+	auto other   = mods.first().toObject();
+	other.insert("id", "unrelated");
+	other.insert("name", "Unrelated visual cheat");
+	other.remove("presentation_fps");
+	mods.append(other);
+	current.insert("mods", mods);
+	QJsonDocument selected;
+	check(Cheats::SelectClockProfile(QJsonDocument(current), profiles, "codex.astro.clock-adaptive",
+	                                 &selected)
+	          .isEmpty(),
+	      "launcher switches from fixed to adaptive");
+	const auto saved_mods = selected.object().value("mods").toArray();
+	check(saved_mods.size() == 3 && saved_mods.first().toObject() == other,
+	      "clock selection preserves unrelated cheats");
+	check(!saved_mods[1].toObject().value("enabled").toBool() &&
+	          saved_mods[2].toObject().value("enabled").toBool() &&
+	          saved_mods[2].toObject().value("presentation_fps").toInt() == 60,
+	      "exactly the adaptive clock and paired 60 FPS ceiling are selected");
+	check(saved_mods[2].toObject().value("memory") ==
+	          profiles[1].object().value("mods").toArray().first().toObject().value("memory"),
+	      "bundled original-byte guards survive GUI selection");
+	check(Cheats::SelectClockProfile(selected, profiles, {}, &selected).isEmpty(),
+	      "disable bundled clock patches");
+	const auto original_mods = selected.object().value("mods").toArray();
+	check(!original_mods[1].toObject().value("enabled").toBool() &&
+	          !original_mods[2].toObject().value("enabled").toBool(),
+	      "original clock disables both bundled modes");
+	auto wrong = current;
+	wrong.insert("version", "01.008.000");
+	check(!Cheats::SelectClockProfile(QJsonDocument(wrong), profiles, "codex.astro.clock30",
+	                                  &selected)
+	           .isEmpty(),
+	      "GUI clock selection rejects another game version");
+	wrong = current;
+	wrong.insert("source_sha256", QString(64, QLatin1Char('0')));
+	check(!Cheats::SelectClockProfile(QJsonDocument(wrong), profiles, "codex.astro.clock30",
+	                                  &selected)
+	           .isEmpty(),
+	      "GUI clock selection rejects an executable fingerprint mismatch");
+	other.insert("presentation_fps", 45);
+	mods.append(other);
+	current.insert("mods", mods);
+	check(!Cheats::SelectClockProfile(QJsonDocument(current), profiles, "codex.astro.clock30",
+	                                  &selected)
+	           .isEmpty(),
+	      "other active timing mods cannot silently conflict");
+	check(!Cheats::SelectClockProfile({}, profiles, "guess", &selected).isEmpty(),
+	      "unknown clock selection fails closed");
 	return failures == 0 ? 0 : 1;
 }

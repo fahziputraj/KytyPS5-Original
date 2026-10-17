@@ -1,5 +1,6 @@
 #include "configurationEditDialog.h"
 
+#include "cheatFile.h"
 #include "common/emulatorConfig.h"
 #include "configuration.h"
 #include "mandatoryLineEdit.h"
@@ -9,23 +10,30 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLayout>
 #include <QLineEdit>
 #include <QListView>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QProcess>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QSettings>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStyle>
+#include <QTemporaryDir>
 #include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
@@ -213,6 +221,7 @@ ConfigurationEditDialog::ConfigurationEditDialog(Configuration& info, QWidget* p
 	restoreGeometry(g_last_geometry);
 
 	Init(info);
+	InitPacingControls();
 }
 
 QByteArray ConfigurationEditDialog::g_last_geometry;
@@ -450,6 +459,10 @@ void ConfigurationEditDialog::InitGameDirectories() {
 
 void ConfigurationEditDialog::SetGlobalSettings(const QStringList& dirs) {
 	m_global_settings = true;
+	m_clock_profile->setEnabled(false);
+	m_clock_status->setText(
+	    tr("Choose a validated simulation clock in each game's settings. "
+	       "Variable frame delivery alone does not correct every game's pace."));
 	auto* menu        = new QMenu(m_ui->settings_button);
 	menu->addAction(tr("Import..."), this, &ConfigurationEditDialog::ImportGameSettings);
 	menu->addAction(tr("Export..."), this, &ConfigurationEditDialog::ExportGameSettings);
@@ -482,6 +495,173 @@ QStringList ConfigurationEditDialog::GetGameDirectories() const {
 	}
 
 	return dirs;
+}
+
+void ConfigurationEditDialog::InitPacingControls() {
+	auto* group = new QGroupBox(tr("Pacing && frame generation"), this);
+	group->setObjectName(QStringLiteral("pacing_group"));
+	auto* form = new QFormLayout(group);
+	form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+	m_clock_profile = new QComboBox(group);
+	m_clock_profile->setObjectName(QStringLiteral("comboBox_simulation_clock"));
+	m_clock_profile->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+	m_clock_profile->setMinimumContentsLength(18);
+	m_clock_profile->addItem(tr("Keep local cheat selection"), QStringLiteral("keep"));
+	form->addRow(tr("Simulation pace:"), m_clock_profile);
+	m_clock_status = new QLabel(group);
+	m_clock_status->setWordWrap(true);
+	m_clock_status->setText(tr("No validated simulation-clock profile for this title/version. "
+	                           "Frame delivery and CPU scheduling are available above."));
+	form->addRow(m_clock_status);
+	auto* fg_status =
+	    new QLabel(tr("FSR frame generation: not available in gameplay. "
+	                  "The GPU test below is offscreen and does not add game frames."),
+	               group);
+	fg_status->setObjectName(QStringLiteral("label_fsr_status"));
+	fg_status->setWordWrap(true);
+	form->addRow(fg_status);
+	auto* probe = new QPushButton(tr("Run FSR3 GPU test"), group);
+	probe->setObjectName(QStringLiteral("button_fsr_gpu_test"));
+	const auto base = QCoreApplication::applicationDirPath();
+	probe->setEnabled(QFileInfo::exists(base + "/Experiments/FSR3/fsr3_vulkan_probe.exe") &&
+	                  QFileInfo::exists(base + "/Experiments/FSR3/amd_fidelityfx_vk.dll"));
+	if (!probe->isEnabled()) {
+		probe->setToolTip(tr("The optional FSR3 test package is not installed."));
+	}
+	connect(probe, &QPushButton::clicked, this, &ConfigurationEditDialog::RunFsrGpuTest);
+	form->addRow(probe);
+	m_ui->sectionsLayout->addWidget(group, 3, 1);
+	m_clock_profile->setEnabled(false);
+	if (m_info.title_id != "PPSA21564" || m_info.gameVersion != "01.007.000" ||
+	    m_info.elf != "eboot.bin") {
+		return;
+	}
+	QString error;
+	for (const auto& name:
+	     {"PPSA21564-01.007-clock30.json", "PPSA21564-01.007-clock-adaptive.json"}) {
+		QFile         file(QDir(base).filePath(QStringLiteral("patches/") + QLatin1String(name)));
+		QJsonDocument profile;
+		if (!file.open(QIODevice::ReadOnly)) {
+			error = tr("Bundled clock profiles are missing. Reinstall the complete build.");
+			break;
+		}
+		error = Cheats::ParseDocument(file.readAll(), &profile);
+		if (!error.isEmpty()) {
+			break;
+		}
+		error = Cheats::ValidateImport(profile, m_info.title_id, m_info.gameVersion, m_info.elf);
+		if (!error.isEmpty()) {
+			break;
+		}
+		m_clock_profiles.append(profile);
+	}
+	QFile local(Cheats::PlanPath(m_info.title_id));
+	if (error.isEmpty() && local.exists()) {
+		if (!local.open(QIODevice::ReadOnly)) {
+			error = tr("Could not read local cheats.");
+		} else {
+			m_clock_data = local.readAll();
+			error        = Cheats::ParseDocument(m_clock_data, &m_clock_document);
+		}
+	}
+	QJsonDocument validation;
+	if (error.isEmpty()) {
+		error = Cheats::SelectClockProfile(m_clock_document, m_clock_profiles, {}, &validation);
+	}
+	if (!error.isEmpty()) {
+		m_clock_status->setText(error);
+		return;
+	}
+	m_clock_profile->addItem(tr("Fixed 30 FPS (experimental)"),
+	                         QStringLiteral("codex.astro.clock30"));
+	m_clock_profile->addItem(tr("Adaptive 30-60 FPS (experimental)"),
+	                         QStringLiteral("codex.astro.clock-adaptive"));
+	m_clock_profile->addItem(tr("Original clock (bundled patches off)"), QString {});
+	QString selected;
+	int     enabled = 0;
+	for (const auto& value: m_clock_document.object().value("mods").toArray()) {
+		const auto mod = value.toObject();
+		if (mod.value("enabled").toBool(true) &&
+		    m_clock_profile->findData(mod.value("id").toString()) > 0) {
+			selected = mod.value("id").toString();
+			++enabled;
+		}
+	}
+	m_clock_profile->setCurrentIndex(enabled > 1 ? 0 : m_clock_profile->findData(selected));
+	m_clock_available = true;
+	m_clock_profile->setEnabled(true);
+	connect(m_clock_profile, &QComboBox::currentIndexChanged, this,
+	        &ConfigurationEditDialog::UpdateClockControls);
+	UpdateClockControls();
+}
+
+void ConfigurationEditDialog::UpdateClockControls() {
+	const auto id     = m_clock_profile->currentData().toString();
+	const bool paired = m_clock_available && !m_global_settings && id != "keep";
+	m_ui->comboBox_presentation_clock->setEnabled(!paired);
+	m_ui->spinBox_presentation_fps->setEnabled(!paired);
+	m_ui->spinBox_vblank_frequency->setEnabled(!paired);
+	if (paired) {
+		m_ui->comboBox_presentation_clock->setCurrentIndex(
+		    m_ui->comboBox_presentation_clock->findData("independent"));
+		m_ui->spinBox_presentation_fps->setValue(id == "codex.astro.clock30" ? 30
+		                                         : id.isEmpty()              ? 0
+		                                                                     : 60);
+		m_ui->spinBox_vblank_frequency->setValue(60);
+	}
+	if (m_clock_available && !m_global_settings) {
+		m_clock_status->setText(tr(
+		    "ASTRO BOT 01.007 only. Saving pairs the clock with its FPS ceiling and 60 Hz vblank. "
+		    "Adaptive correction covers 30-60 FPS; below 30, slowdown can remain. "
+		    "Changes apply on the next launch; other cheats are preserved."));
+	}
+}
+
+void ConfigurationEditDialog::RunFsrGpuTest() {
+	QTemporaryDir output;
+	if (!output.isValid()) {
+		QMessageBox::critical(this, tr("FSR3 GPU test"),
+		                      tr("Could not create a temporary output directory."));
+		return;
+	}
+	QDialog dialog(this);
+	dialog.setWindowTitle(tr("FSR3 offscreen GPU test — no in-game frame generation"));
+	dialog.resize(720, 440);
+	auto* layout = new QVBoxLayout(&dialog);
+	auto* status = new QLabel(
+	    tr("Running six GPU interpolation dispatches. This does not enable game frame generation."),
+	    &dialog);
+	status->setWordWrap(true);
+	layout->addWidget(status);
+	auto* log = new QPlainTextEdit(&dialog);
+	log->setReadOnly(true);
+	log->setMaximumBlockCount(600);
+	layout->addWidget(log);
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+	layout->addWidget(buttons);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	QProcess process;
+	process.setProcessChannelMode(QProcess::MergedChannels);
+	const auto base = QCoreApplication::applicationDirPath() + "/Experiments/FSR3/";
+	process.setWorkingDirectory(base);
+	connect(&process, &QProcess::readyReadStandardOutput, &dialog,
+	        [&] { log->appendPlainText(QString::fromLocal8Bit(process.readAllStandardOutput())); });
+	connect(&process, &QProcess::errorOccurred, &dialog, [&](QProcess::ProcessError) {
+		status->setText(tr("GPU test could not complete: %1").arg(process.errorString()));
+	});
+	connect(&process, &QProcess::finished, &dialog, [&](int code, QProcess::ExitStatus exit) {
+		status->setText(
+		    code == 0 && exit == QProcess::NormalExit
+		        ? tr("GPU test passed. In-game FSR frame generation is still unavailable.")
+		        : tr("GPU test failed. See the output below."));
+	});
+	process.start(base + "fsr3_vulkan_probe.exe",
+	              {base + "amd_fidelityfx_vk.dll", output.filePath("generated.ppm")});
+	dialog.exec();
+	if (process.state() != QProcess::NotRunning) {
+		process.kill();
+		process.waitForFinished(1000);
+	}
 }
 
 void ConfigurationEditDialog::DetectMotionControllers() {
@@ -633,6 +813,21 @@ void ConfigurationEditDialog::save() {
 		return;
 	}
 
+	UpdateClockControls();
+	if (!m_global_settings && m_clock_available &&
+	    m_clock_profile->currentData().toString() != "keep") {
+		QJsonDocument selected;
+		auto          error =
+		    Cheats::SelectClockProfile(m_clock_document, m_clock_profiles,
+		                               m_clock_profile->currentData().toString(), &selected);
+		if (error.isEmpty()) {
+			error = Cheats::SaveDocument(Cheats::PlanPath(m_info.title_id), selected, m_clock_data);
+		}
+		if (!error.isEmpty()) {
+			QMessageBox::critical(this, tr("Save failed"), error);
+			return;
+		}
+	}
 	UpdateInfo(m_info, *m_ui, m_global_settings);
 
 	emit accept();

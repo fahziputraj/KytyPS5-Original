@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSet>
 
 namespace Cheats {
 
@@ -142,6 +143,74 @@ QJsonDocument WithSelection(const QJsonDocument& document, const QList<bool>& en
 	}
 	root.insert(QStringLiteral("mods"), mods);
 	return QJsonDocument(root);
+}
+
+QString SelectClockProfile(const QJsonDocument& current, const QList<QJsonDocument>& profiles,
+                           const QString& selected_id, QJsonDocument* result) {
+	if (profiles.isEmpty() || result == nullptr) {
+		return Tr("No compatible clock profiles are bundled.");
+	}
+	const auto reference = profiles.first().object();
+	const auto title     = reference.value("id").toString();
+	const auto version   = reference.value("version").toString();
+	const auto process   = reference.value("process").toString();
+	const auto hash      = reference.value("source_sha256").toString();
+	if (hash.size() != 64) {
+		return Tr("Clock profile has no executable fingerprint.");
+	}
+	QSet<QString> ids;
+	QJsonArray    clocks;
+	for (const auto& profile: profiles) {
+		const auto error = ValidateImport(profile, title, version, process);
+		if (!error.isEmpty()) {
+			return error;
+		}
+		const auto root = profile.object();
+		if (root.value("source_sha256").toString() != hash ||
+		    root.value("mods").toArray().size() != 1) {
+			return Tr("Bundled clock profiles do not match one executable.");
+		}
+		auto       mod = root.value("mods").toArray().first().toObject();
+		const auto id  = mod.value("id").toString();
+		if (id.isEmpty() || ids.contains(id)) {
+			return Tr("Clock profile has an invalid or duplicate identifier.");
+		}
+		ids.insert(id);
+		mod.insert("enabled", id == selected_id);
+		clocks.append(mod);
+	}
+	if (!selected_id.isEmpty() && !ids.contains(selected_id)) {
+		return Tr("Unknown clock profile.");
+	}
+	auto root = current.isNull() ? reference : current.object();
+	if (!current.isNull()) {
+		const auto error = ValidateImport(current, title, version, process);
+		if (!error.isEmpty()) {
+			return error;
+		}
+		if (root.contains("source_sha256") && root.value("source_sha256").toString() != hash) {
+			return Tr("The local cheats target a different executable.");
+		}
+	}
+	QJsonArray mods;
+	for (const auto& value: root.value("mods").toArray()) {
+		const auto mod = value.toObject();
+		if (ids.contains(mod.value("id").toString())) {
+			continue;
+		}
+		if (!selected_id.isEmpty() && mod.value("enabled").toBool(true) &&
+		    (mod.contains("presentation_fps") || mod.contains("simulation_clock"))) {
+			return Tr("Disable the other timing cheat before selecting a bundled clock profile.");
+		}
+		mods.append(mod);
+	}
+	for (const auto& mod: clocks) {
+		mods.append(mod);
+	}
+	root.insert("source_sha256", hash);
+	root.insert("mods", mods);
+	*result = QJsonDocument(root);
+	return {};
 }
 
 QString SaveDocument(const QString& path, const QJsonDocument& document,

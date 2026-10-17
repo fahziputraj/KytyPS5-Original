@@ -53,10 +53,17 @@ if(BUILD_TESTING)
 	add_executable(launcher_presentation_config_tests EXCLUDE_FROM_ALL
 		"${KYTY_TESTS_DIR}/LauncherPresentationConfigTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/configuration.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/cheatFile.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/include/configuration.h")
 	target_include_directories(launcher_presentation_config_tests PRIVATE
 		"${CMAKE_CURRENT_SOURCE_DIR}/include")
 	target_link_libraries(launcher_presentation_config_tests Qt6::Widgets)
+	file(COPY
+		"${CMAKE_SOURCE_DIR}/patches/PPSA21564-01.007-clock30.json"
+		"${CMAKE_SOURCE_DIR}/patches/PPSA21564-01.007-clock-adaptive.json"
+		DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/test-clock-profiles")
+	target_compile_definitions(launcher_presentation_config_tests PRIVATE
+		KYTY_CLOCK_PATCH_DIR="${CMAKE_CURRENT_BINARY_DIR}/test-clock-profiles")
 	set_target_properties(launcher_presentation_config_tests PROPERTIES AUTOMOC ON)
 	if(KYTY_CLANG_CL AND KYTY_LOCAL_MSVC_COMPAT_VERSION)
 		target_compile_options(launcher_presentation_config_tests PRIVATE
