@@ -548,9 +548,10 @@ QWidget* InputMappingDialog::BuildTab(bool pad) {
 			        ChangePadBinding(id == QLatin1String("TouchPadRight") ? QStringLiteral("TouchPad")
 			                                                               : id);
 		        });
-		auto* note = new QLabel(tr("The gyro emulation toggle activates tilt mode on gamepads "
-		                           "without a gyroscope: the right stick then controls pitch and "
-		                           "roll. It defaults to the View/Back button."),
+		auto* note = new QLabel(tr("The gyro emulation toggle has no default button. While tilt "
+		                           "is on, the right stick controls pitch and roll and replaces "
+		                           "any physical gyro. On pads without a touchpad, an unbound "
+		                           "View/Back button clicks the touchpad centre."),
 		                        page);
 		note->setWordWrap(true);
 		layout->addWidget(note);

@@ -660,6 +660,39 @@ void TestEmulatedTiltOverridesPhysicalMotion() {
 	motion_capable[1] = false;
 }
 
+// A held tilt follows the game's motion toggle and input resets without waiting for a stick event.
+void TestTiltRepublishesOnMotionToggleAndReset() {
+	motion_capable[1] = true;
+	{
+		Controller controller;
+		PadData    data[64] {};
+		ToggleGyroEmulation(1);
+		SetAxis(1, Axis::RightX, 255);
+		// The game disables motion while the stick is held still: the pose turns neutral at once.
+		Check(PadSetMotionSensorState(1, false) == 0, "motion disable failed");
+		Check(PadReadState(1, data) == 0 && data[0].orientation_z == 0.0f &&
+		          data[0].orientation_w == 1.0f,
+		      "a held tilt stayed tilted after the game disabled motion");
+		// Re-enabling restores the held tilt at once, without an angular-velocity spike.
+		now += 10;
+		Check(PadSetMotionSensorState(1, true) == 0, "motion enable failed");
+		Check(PadReadState(1, data) == 0 &&
+		          std::abs(data[0].orientation_z + 0.38268343f) < 0.001f &&
+		          data[0].angular_velocity_x == 0.0f && data[0].angular_velocity_z == 0.0f,
+		      "re-enabling motion did not restore the held tilt, or reported a spike");
+		// A system dialog resets input: the emulated stick recentres, so leaving tilt later
+		// cannot restore a stale deflection.
+		ResetInputState();
+		Check(PadReadState(1, data) == 0 && data[0].orientation_z == 0.0f &&
+		          data[0].orientation_w == 1.0f,
+		      "an input reset kept the tilt pose");
+		ToggleGyroEmulation(1);
+		Check(PadReadState(1, data) == 0 && data[0].right_stick_x == 128,
+		      "turning tilt off after an input reset restored a stale stick");
+	}
+	motion_capable[1] = false;
+}
+
 void TestMotionSourceAndHardwareLifetime() {
 	motion_capable[1] = true;
 	motion_capable[2] = true;
@@ -740,6 +773,7 @@ int main() {
 	TestMotionIntegrationAndHistory();
 	TestMotionSourceAndHardwareLifetime();
 	TestEmulatedTiltOverridesPhysicalMotion();
+	TestTiltRepublishesOnMotionToggleAndReset();
 	Config::Shutdown();
 	return 0;
 }

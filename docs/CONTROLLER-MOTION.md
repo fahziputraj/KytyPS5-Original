@@ -103,6 +103,11 @@ unchanged.
   disabled (`Keyboard=Disabled`, `Pad=Disabled`). Bindings are stored in the same
   `host_input_mapping` list as before (`Pad:<control>=<source>` for the controller
   tab), so earlier keyboard mappings load unchanged and games inherit the global list.
+  Rolling back is one-way: a runtime from before this port stops at game start with
+  "Invalid input mapping" when the list contains any newer entry (`Pad:`,
+  `Pad=Disabled`, `Keyboard=Disabled`, `TouchParticleSkin=`, `TouchCursorImage=`).
+  Before restoring an older runtime from `<destination>-Backups`, reset the mapping
+  to defaults or remove those entries from `host_input_mapping` in `Kyty.ini`.
 - **Touchpad on pads without one.** Xbox-style pads, Switch pads and the AX9 in
   XInput mode have no touchpad. When Back/View is not bound to anything else, it is
   a centred touchpad click; pads with their own touchpad use it instead. Binding
@@ -113,9 +118,11 @@ unchanged.
   tilts the virtual DualSense up to 45 degrees and stops moving the right stick,
   and it replaces any physical gyro, including the AX9's in Switch Pro mode. Tilt
   updates follow the same motion history rate as physical samples. If the game
-  has turned motion off, the pose stays neutral. Turning tilt off reports a
+  has turned motion off, the pose stays neutral at once, and a held tilt returns when
+  motion is turned back on. An input reset (for example a system dialog) recentres the
+  tilt stick. Turning tilt off reports a
   neutral pose, restores the stick and lets the physical gyro resume from its next
-  sample. A pad that disconnects leaves tilt off.
+  sample. If the active pad disconnects, tilt turns off.
 - **Emulated touchpad.** F6 (`TouchPadMode`) toggles mouse touchpad mode: the
   cursor is the finger and the left button touches. A bound `TouchPadMode` button
   toggles gamepad touchpad mode: the left stick moves the finger and Cross touches.
@@ -141,4 +148,7 @@ following home-PC checklist is pending:
    tilt and back.
 4. Mouse touchpad mode and the gamepad touchpad mode work, and their cursor
    visuals appear and disappear with the toggles.
-5. Astro 01.007 fixed-30 shortcut behaves as before.
+5. Astro 01.007 fixed-30 shortcut behaves as before, including with F6 touchpad mode
+   on (the overlay stays active in that mode, so check the frame pacing).
+6. With tilt on and the stick held: the pose follows the game's own motion option and
+   recentres after a system dialog.

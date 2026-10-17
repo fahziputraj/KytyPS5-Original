@@ -104,7 +104,10 @@ input files, because this fork changed the same areas.
    the CMake install rule, so the transactional installer picks them up from
    the install manifest.
 7. **Compatibility.** Existing keyboard-only `host_input_mapping` lists load
-   unchanged. Controller bindings are stored alongside them. An older launcher
+   unchanged. Controller bindings are stored alongside them. Correction after the
+   final review: rolling back is not lossless. A runtime from before the port stops
+   with "Invalid input mapping" on the new entries, so the docs tell the owner to
+   reset the mapping before restoring an older runtime. Original text: an older launcher
    ignores the new controller bindings; going back loses only those bindings.
 8. **Unchanged:** the Astro shortcut and its fixed-30 Performance1080p profile
    with 60 Hz guest vblank, presentation/CPU/FSR/DLSS settings and status, the

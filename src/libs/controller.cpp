@@ -155,6 +155,9 @@ private:
 	void AddMotionState(uint64_t time_us);
 	// Emulated tilt: the right stick drives pitch and roll instead of the stick axes.
 	void UpdateEmulatedTilt();
+	// Publishes the tilt pose for the current stick again, without an angular-velocity spike;
+	// caller holds m_mutex.
+	void RepublishTilt();
 	// Apply cached output without changing its game-requested lifetime; caller holds m_mutex.
 	void ApplyVibration();
 	bool SendTriggerEffect(const PadTriggerEffectParam& param);
@@ -839,7 +842,12 @@ bool GameController::SetMotionSensorState(bool enable) {
 		m_state.gyro         = {};
 		m_up_reference_valid = false;
 		m_state.time         = LibKernel::KernelGetProcessTime();
-		AddState();
+		if (m_gyro_emulation) {
+			// A held tilt turns neutral or returns at once, not on the next stick event.
+			RepublishTilt();
+		} else {
+			AddState();
+		}
 		return wake;
 	}
 	return false;
@@ -891,6 +899,12 @@ void GameController::UpdateEmulatedTilt() {
 	AddMotionState(now);
 	// Angular velocity is only nonzero while the tilt changes.
 	m_state.gyro = {};
+}
+
+void GameController::RepublishTilt() {
+	m_emulated_time      = 0;
+	m_motion_report_time = 0;
+	UpdateEmulatedTilt();
 }
 
 void GameController::ToggleGyroEmulation(int id) {
@@ -948,6 +962,12 @@ void GameController::ResetInputState() {
 	m_first_state   = 0;
 	m_next_touch_id = 1;
 	AddState();
+	if (m_gyro_emulation) {
+		// The stick is released with the rest of the input, so leaving tilt later cannot
+		// restore a stale deflection.
+		m_emulated_stick = {128, 128};
+		RepublishTilt();
+	}
 }
 
 void GameController::ReleaseHostPads() {
