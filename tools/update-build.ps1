@@ -2,25 +2,37 @@ param(
     [switch]$SkipBuild,
     [switch]$PrepareOnly,
     [switch]$Fsr3Probe,
+    [switch]$SkipFsr3GpuTest,
+    [string]$Destination = 'E:\KytyPS5-Build',
+    [string]$ToolchainConfig = '',
+    [ValidateRange(1,64)][int]$Jobs = 3,
     [ValidateSet('Preserve','Performance1080p','Accurate1080p','Accurate1440p')][string]$GraphicsProfile = 'Preserve',
     [ValidateSet('Preserve','Fixed30','Adaptive')][string]$LauncherAstroClock = 'Preserve'
 )
 $ErrorActionPreference = 'Stop'
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$taskDestination = 'F:\KytyPS5-Build'
+$taskDestination = [IO.Path]::GetFullPath($Destination).TrimEnd('\')
 $taskBuild = Join-Path $taskRepo '_Build\windows-int19'
 $taskStage = Join-Path $taskRepo '_Build\runtime-int19'
-$taskCmakeBin = 'C:\Users\fahzi\Documents\Codex\2026-10-15\he\work\build-tools-python\cmake\data\bin'
+. (Join-Path $PSScriptRoot 'windows-toolchain.ps1')
+$taskTools = Get-KytyWindowsToolchain -Repository $taskRepo -Configuration $ToolchainConfig
+$taskCmakeBin = Split-Path -Parent $taskTools.Cmake
+if ($SkipFsr3GpuTest -and !$Fsr3Probe) { throw '-SkipFsr3GpuTest requires -Fsr3Probe.' }
 if (!$SkipBuild) {
-    $taskBuildOptions = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'build-windows-local.ps1'), '-Configure')
+    $taskBuildOptions = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'build-windows-local.ps1'), '-Configure', '-Destination', $taskDestination, '-Jobs', $Jobs)
+    if ($ToolchainConfig) { $taskBuildOptions += @('-ToolchainConfig', $ToolchainConfig) }
     if ($Fsr3Probe) { $taskBuildOptions += '-Fsr3Probe' }
     & powershell @taskBuildOptions
     if ($LASTEXITCODE -ne 0) { throw 'Build failed; installed binaries were not updated.' }
 }
+$env:PATH = "$(Join-Path $taskBuild 'launcher');$($taskTools.QtRoot)\bin;$env:PATH"
 & "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|controller_settings|temporal_camera|temporal_input|cpu_placement.*)$'
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed; installed binaries were not updated.' }
-& "$taskCmakeBin\cmake.exe" --install $taskBuild --prefix $taskStage
-if ($LASTEXITCODE -ne 0) { throw 'Staging the runnable build failed.' }
+Invoke-KytyPgoSource -Repository $taskRepo -Action {
+    param($taskSourceLink)
+    & "$taskCmakeBin\cmake.exe" --install $taskBuild --prefix $taskStage
+    if ($LASTEXITCODE -ne 0) { throw 'Staging the runnable build failed.' }
+}
 Copy-Item -LiteralPath (Join-Path $taskBuild 'controller_probe.exe') -Destination $taskStage -Force
 # Keep the complete Qt runtime beside the newly built launcher.
 $taskLauncherRuntime = Join-Path $taskBuild 'launcher'
@@ -42,14 +54,22 @@ Copy-Item -LiteralPath (Join-Path $taskRepo $taskBundledPatch) -Destination (Joi
 $taskAdaptivePatch = 'patches\PPSA21564-01.007-clock-adaptive.json'
 Copy-Item -LiteralPath (Join-Path $taskRepo $taskAdaptivePatch) -Destination (Join-Path $taskStage $taskAdaptivePatch) -Force
 $taskPresetPath = Join-Path $taskDestination 'u59-preset.json'
-if (!(Test-Path -LiteralPath $taskPresetPath)) { throw 'The installed int19.1 preset is missing.' }
+$taskFreshPreset = !(Test-Path -LiteralPath $taskPresetPath)
+if ($taskFreshPreset) { $taskPresetPath = Join-Path $PSScriptRoot 'u59-preset.json' }
 $taskPreset = Get-Content -LiteralPath $taskPresetPath -Raw | ConvertFrom-Json
 foreach ($taskSetting in @{ KYTY_PRESENT_WHEN_READY='1'; KYTY_PRESENT_FPS='0'; KYTY_CPU_HYBRID='on'; KYTY_WRITE_RANGE_STATS='0'; KYTY_DEFER_PROTECTS='0' }.GetEnumerator()) {
-    $taskPreset | Add-Member -NotePropertyName $taskSetting.Key -NotePropertyValue $taskSetting.Value -Force
+    if ($taskFreshPreset) { $taskPreset | Add-Member -NotePropertyName $taskSetting.Key -NotePropertyValue $taskSetting.Value -Force }
 }
 $taskPreset | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskStage 'u59-preset.json') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $taskRepo 'docs\ASTRO-TIMING.md') -Destination (Join-Path $taskStage 'BUILD-NOTES.md') -Force
 Copy-Item -LiteralPath (Join-Path $taskRepo 'docs\GLOBAL-PACING-FSR-PROPOSAL.md') -Destination (Join-Path $taskStage 'GLOBAL-PACING-FSR.md') -Force
+Copy-Item -LiteralPath (Join-Path $taskRepo 'docs\FSR-INTEGRATION-CHECKPOINT.md'),(Join-Path $taskRepo 'docs\FSR-DLSS-DEVELOPMENT.md'),(Join-Path $taskRepo 'LICENSE') -Destination $taskStage -Force
+Copy-Item -LiteralPath (Join-Path $taskRepo 'LICENSES') -Destination $taskStage -Recurse -Force
+# libFont needs these fallback fonts when the build-time source path is absent.
+$taskFontDestination = Join-Path $taskStage '3rdparty\tracy\profiler\src\font'
+New-Item -ItemType Directory -Path $taskFontDestination -Force | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $taskRepo '3rdparty\tracy\profiler\src\font') -Filter 'Roboto-*.ttf' -File | Copy-Item -Destination $taskFontDestination -Force
+Copy-Item -LiteralPath (Join-Path $taskRepo '3rdparty\SPIRV-Tools\LICENSE') -Destination (Join-Path $taskFontDestination 'LICENSE-Apache-2.0.txt') -Force
 $taskFsrInfo = [ordered]@{ bundled = $false; in_game_enabled = $false }
 if ($Fsr3Probe) {
     $taskSdkPackage = Join-Path $taskRepo '_Build\deps\fidelityfx-1.1.4\sdk-package'
@@ -61,15 +81,18 @@ if ($Fsr3Probe) {
     if ((Get-AuthenticodeSignature -LiteralPath $taskFsrDll).Status -ne 'Valid') {
         throw 'The optional FSR3 library signature is invalid.'
     }
-    & $taskFsrProbe $taskFsrDll (Join-Path $taskBuild 'fsr3-smoke-generated.ppm')
-    if ($LASTEXITCODE -ne 0) { throw 'The optional FSR3 GPU probe failed; installed binaries were not updated.' }
+    if (!$SkipFsr3GpuTest) {
+        & $taskFsrProbe $taskFsrDll (Join-Path $taskBuild 'fsr3-smoke-generated.ppm')
+        if ($LASTEXITCODE -ne 0) { throw 'The optional FSR3 GPU probe failed; installed binaries were not updated.' }
+    }
     $taskFsrDestination = Join-Path $taskStage 'Experiments\FSR3'
     New-Item -ItemType Directory -Path $taskFsrDestination -Force | Out-Null
     Copy-Item -LiteralPath $taskFsrProbe,$taskFsrDll,(Join-Path $taskSdkPackage 'sdk\LICENSE.txt'),(Join-Path $PSScriptRoot 'Run-FSR3-Test.cmd') -Destination $taskFsrDestination -Force
     $taskFsrInfo['bundled'] = $true
     $taskFsrInfo['sdk'] = '1.1.4'
     $taskFsrInfo['library_sha256'] = (Get-FileHash -LiteralPath $taskFsrDll -Algorithm SHA256).Hash
-    $taskFsrInfo['validation'] = 'Six offscreen Vulkan interpolation dispatches and generated-frame readback; no guest presentation tested'
+    $taskFsrInfo['gpu_probe_status'] = $(if ($SkipFsr3GpuTest) { 'not_run' } else { 'passed' })
+    $taskFsrInfo['validation'] = $(if ($SkipFsr3GpuTest) { 'Compiled and bundled only; GPU probe and gameplay validation pending' } else { 'Six offscreen Vulkan interpolation dispatches and generated-frame readback; no guest presentation tested' })
 }
 $taskManifest = [ordered]@{
     distribution = 'Local build based on Jetsku int19.1'
@@ -95,7 +118,7 @@ foreach ($taskName in @('kyty_emulator.exe','launcher.exe','kyty_launcher.exe','
 }
 if ($PrepareOnly) { Write-Output "Runtime prepared for verification: $taskStage"; return }
 $taskActive = Get-Process kyty_emulator,kyty_launcher,launcher -ErrorAction SilentlyContinue | Where-Object { $_.Path -and [IO.Path]::GetDirectoryName($_.Path) -eq $taskDestination }
-if ($taskActive) { throw 'Close the applications running from F:\KytyPS5-Build before replacing their binaries.' }
+if ($taskActive) { throw "Close the applications running from $taskDestination before replacing their binaries." }
 $taskPatchDestination = Join-Path $taskDestination '_Patches\PPSA21564.json'
 $taskPatchDocument = Get-Content -LiteralPath (Join-Path $taskStage $taskBundledPatch) -Raw | ConvertFrom-Json
 if (Test-Path -LiteralPath $taskPatchDestination) {
@@ -126,7 +149,7 @@ if ($LauncherAstroClock -ne 'Preserve') {
         $taskPatchDocument.mods = @($taskPatchDocument.mods | Where-Object { $_.id -ne $taskClockMod.id }) + @($taskClockMod)
     }
 }
-$taskBackup = Join-Path 'F:\KytyPS5-Build-Backups' ([DateTime]::Now.ToString('yyyyMMdd-HHmmss') + '-before-realtime-pacing')
+$taskBackup = Join-Path "$taskDestination-Backups" ([DateTime]::Now.ToString('yyyyMMdd-HHmmss') + '-before-realtime-pacing')
 New-Item -ItemType Directory -Path $taskBackup | Out-Null
 $taskStageRoot = [IO.Path]::GetFullPath($taskStage).TrimEnd('\') + '\'
 $taskFiles = Get-ChildItem -LiteralPath $taskStage -File -Recurse

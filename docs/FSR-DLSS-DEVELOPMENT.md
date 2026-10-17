@@ -60,7 +60,7 @@ CPU guard test. That test exercises their unsupported-device, absent-context and
 cleanup paths using a stub Vulkan entry-point query; it never calls a GPU driver
 or AMD's DLL. It does not link an emulator or run the GPU probe. Omitting
 `-FsrSdkRoot` disables that extra compile/test step again. This developer path
-does not update `F:/KytyPS5-Build`; full runnable
+does not update the runnable destination; full runnable
 updates continue through `tools/update-build.ps1` and its preservation checks.
 
 ## Shared temporal inputs and FSR fallback
@@ -100,7 +100,7 @@ intact, and distinguish a successful build from validated gameplay.
 See [the integration checkpoint](FSR-INTEGRATION-CHECKPOINT.md) for earlier evidence
 and the [global proposal](GLOBAL-PACING-FSR-PROPOSAL.md) for the SDK/input contracts.
 
-## Local verification on 2026-10-17
+## CPU foundation verification on 2026-10-17
 
 On the iGPU development machine, portable Zig 0.16.0 (Clang 21.1.0), CMake and
 Ninja compiled the four default suites. Both FSR backend implementations also
@@ -110,8 +110,12 @@ temporal-input checks**. PowerShell parsing and Git whitespace checks passed.
 The prepared AMD DLL matched the repository's pinned SHA-256 and Windows
 validated its AMD Authenticode signature; these tests did not load it.
 
-The portable tools live in the normal uv cache and SDK files in ignored
-`_Build/deps`. No full emulator/launcher build, GPU probe, DLSS execution or game
-session was run here. No runtime was staged or installed at `F:/KytyPS5-Build`.
+The CPU-test tools live in the normal uv cache and SDK files in ignored
+`_Build/deps`. At that CPU-only checkpoint no full emulator/launcher build, GPU
+probe, DLSS execution or game session was run. No runtime was staged or installed.
 The working Astro profile, game data, settings, shader caches and saves were not
 modified. The original checkpoint's gameplay validation remains outstanding.
+
+Subsequent full builds on this machine use `E:/KytyPS5-Build` and the separate
+PGO toolchain described in [the Windows build guide](WINDOWS-LOCAL-BUILD.md).
+Building the full runtime does not close the outstanding GPU/gameplay checks.

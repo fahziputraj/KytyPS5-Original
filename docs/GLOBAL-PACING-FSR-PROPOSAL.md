@@ -111,7 +111,9 @@ not establish in-game FG, doubled game speed, image quality, or a performance ga
 
 The local delivery script's optional `-Fsr3Probe` runs that GPU check and bundles
 the probe, pinned signed AMD library and license under `Experiments/FSR3` in
-`F:\KytyPS5-Build`. `Run-FSR3-Test.cmd` repeats the offscreen test; it does not
+the selected destination (`E:\KytyPS5-Build` on this machine). An explicit
+`-SkipFsr3GpuTest` bundles the compiled probe while recording GPU validation as
+not run. `Run-FSR3-Test.cmd` repeats the offscreen test; it does not
 enable game frame generation. Delivery without this flag requires no SDK.
 
 The launcher settings expose the same offscreen test through **Pacing & frame

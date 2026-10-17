@@ -152,13 +152,14 @@ hack or a claim of guaranteed FPS improvement.
 
 `tools/build-windows-local.ps1` uses LLVM 22.1.3, release IPO and the bundled
 int19 Sky Garden PGO profile. Anonymous function names require the profile's
-exact `C:\kyty-src19` path. The build temporarily redirects that junction to this
-checkout and restores its previous target in `finally`; it refuses to do so if
+exact `C:\kyty-src19` path. Build and install steps temporarily redirect that junction to this
+checkout and restore its previous target in `finally`; they refuse to do so if
 another native build is running. Neither source checkout is moved or deleted.
 The build output is `_Build/windows-int19`.
 
 `tools/update-build.ps1` runs timing/CPU placement checks, stages the runtime,
-backs up files before overwriting `F:\KytyPS5-Build`, and preserves the installed
+backs up files before overwriting the selected destination (`E:\KytyPS5-Build`
+on this machine), and preserves the installed
 INI, caches and saves. `-GraphicsProfile Accurate1080p` explicitly changes the
 installed global graphics settings; subsequent updates default to preserving them.
 The Astro patch is merged into `_Patches/PPSA21564.json` for GUI launch, preserving

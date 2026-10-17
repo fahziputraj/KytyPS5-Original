@@ -1,9 +1,12 @@
 # Local build delivery
 
-The user wants the latest runnable Windows build at `F:\KytyPS5-Build`.
+On this machine the user wants the latest runnable Windows build at `E:\KytyPS5-Build`.
 Replace the binaries in that directory on each update. Preserve existing settings,
 shader/pipeline caches, and save data. Use `tools/update-build.ps1` to build, test,
-and stage source-build updates in that location.
+and stage source-build updates in that location. The scripts accept `-Destination`
+for another machine; leave the home PC's `F:\KytyPS5-Build` untouched here.
+See `docs/WINDOWS-LOCAL-BUILD.md` for this machine's portable toolchain and
+explicitly deferred FSR GPU validation.
 
 Use standard branch prefixes such as `feature/`, `fix/`, `chore/`, and `test/`.
 The user explicitly rejected the `codex/` prefix for new branches. Historical
