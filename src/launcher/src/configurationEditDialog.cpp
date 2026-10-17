@@ -4,6 +4,7 @@
 #include "common/emulatorConfig.h"
 #include "configuration.h"
 #include "mandatoryLineEdit.h"
+#include "temporalStatus.h"
 
 #include <QAbstractItemView>
 #include <QCheckBox>
@@ -529,30 +530,34 @@ void ConfigurationEditDialog::InitPacingControls() {
 	m_fsr_generation->setObjectName(QStringLiteral("checkBox_fsr_frame_generation"));
 	m_fsr_generation->setChecked(m_info.fsr_frame_generation);
 	form->addRow(m_fsr_generation);
-	auto* fg_status =
-	    new QLabel(tr("Astro Bot 01.007 temporal adapter. Requires the bundled AMD Vulkan library. "
-	                  "Missing guides suspend FSR automatically. This compatibility mode retains "
-	                  "the game's rendering, "
-	                  "TAA and HUD; UI/transparent effects may show artifacts. It does not reduce "
-	                  "guest rendering cost. "
-	                  "Changes apply on next launch."),
-	               group);
+	// Package and title eligibility only; GPU features, guides and generated presentation are
+	// verified by the emulator at run time, which falls back to the original image.
+	const auto base        = QCoreApplication::applicationDirPath();
+	const auto fsr_package = TemporalStatus::ReadFsrPackage(base);
+	const bool fsr_selected =
+	    m_info.fsr_frame_generation || m_info.fsr_upscale != QStringLiteral("off");
+	const auto fsr_status =
+	    TemporalStatus::EvaluateFsr(fsr_package, m_global_settings, m_info.title_id,
+	                                m_info.gameVersion, m_info.elf, fsr_selected);
+	auto* fg_status = new QLabel(fsr_status.text, group);
 	fg_status->setObjectName(QStringLiteral("label_fsr_status"));
 	fg_status->setWordWrap(true);
 	form->addRow(fg_status);
+	m_fsr_upscale->setEnabled(fsr_status.controls_enabled);
+	m_fsr_generation->setEnabled(fsr_status.controls_enabled);
 	auto* probe = new QPushButton(tr("Run FSR3 GPU test"), group);
 	probe->setObjectName(QStringLiteral("button_fsr_gpu_test"));
-	const auto base = QCoreApplication::applicationDirPath();
-	const bool fsr_installed = QFileInfo::exists(base + "/Experiments/FSR3/amd_fidelityfx_vk.dll");
-	m_fsr_upscale->setEnabled(fsr_installed);
-	m_fsr_generation->setEnabled(fsr_installed);
-	probe->setEnabled(QFileInfo::exists(base + "/Experiments/FSR3/fsr3_vulkan_probe.exe") &&
-	                  QFileInfo::exists(base + "/Experiments/FSR3/amd_fidelityfx_vk.dll"));
+	probe->setEnabled(fsr_package.probe && fsr_package.library);
 	if (!probe->isEnabled()) {
 		probe->setToolTip(tr("The optional FSR3 test package is not installed."));
 	}
 	connect(probe, &QPushButton::clicked, this, &ConfigurationEditDialog::RunFsrGpuTest);
 	form->addRow(probe);
+	auto* dlss_status =
+	    new QLabel(TemporalStatus::DlssStatusText(TemporalStatus::ReadDlssPackage(base)), group);
+	dlss_status->setObjectName(QStringLiteral("label_dlss_status"));
+	dlss_status->setWordWrap(true);
+	form->addRow(dlss_status);
 	m_ui->sectionsLayout->addWidget(group, 3, 1);
 	m_clock_profile->setEnabled(false);
 	if (m_info.title_id != "PPSA21564" || m_info.gameVersion != "01.007.000" ||
@@ -674,9 +679,10 @@ void ConfigurationEditDialog::RunFsrGpuTest() {
 	});
 	connect(&process, &QProcess::finished, &dialog, [&](int code, QProcess::ExitStatus exit) {
 		status->setText(code == 0 && exit == QProcess::NormalExit
-		                    ? tr("GPU test passed. Select the in-game FSR options in settings for "
-		                         "supported games.")
-		                    : tr("GPU test failed. See the output below."));
+		                    ? tr("Offscreen GPU test passed (synthetic frames). In-game FSR is "
+		                         "verified separately at run time, for certified titles only.")
+		                    : tr("GPU test failed. In-game FSR will fall back to the original "
+		                         "image. See the output below."));
 	});
 	process.start(base + "fsr3_vulkan_probe.exe",
 	              {base + "amd_fidelityfx_vk.dll", output.filePath("generated.ppm")});

@@ -6,6 +6,7 @@
 #include "configurationListWidget.h"
 #include "controllerLightbar.h"
 #include "gameContent.h"
+#include "temporalStatus.h"
 #include "updateChecker.h"
 
 #include <QApplication>
@@ -283,8 +284,16 @@ static QStringList CreateEmulatorArgs(const Configuration& info) {
 	if (info.presentation_fps >= 0) {
 		args << "--presentation-fps" << QString::number(info.presentation_fps);
 	}
-	args << "--fsr-upscale" << info.fsr_upscale;
-	args << "--fsr-frame-generation" << BoolArg(info.fsr_frame_generation);
+	// Requested FSR options reach the emulator only for a certified title with the library
+	// installed; otherwise it keeps its native swapchain instead of an idle FSR replacement.
+	const auto fsr = TemporalStatus::EffectiveFsrLaunch(
+	    TemporalStatus::ReadFsrPackage(QCoreApplication::applicationDirPath()), info.title_id,
+	    info.gameVersion, info.elf, info.fsr_upscale, info.fsr_frame_generation);
+	if (!fsr.reason.isEmpty()) {
+		qInfo("%s", qUtf8Printable(fsr.reason));
+	}
+	args << "--fsr-upscale" << fsr.upscale;
+	args << "--fsr-frame-generation" << BoolArg(fsr.frame_generation);
 	if (info.gpu_index >= 0) {
 		args << "--gpu" << QString::number(info.gpu_index);
 	}

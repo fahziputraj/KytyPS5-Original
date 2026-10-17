@@ -1,7 +1,9 @@
 #include "cheatFile.h"
 #include "configuration.h"
+#include "temporalStatus.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QTemporaryDir>
@@ -145,5 +147,92 @@ int main(int argc, char** argv) {
 	      "other active timing mods cannot silently conflict");
 	check(!Cheats::SelectClockProfile({}, profiles, "guess", &selected).isEmpty(),
 	      "unknown clock selection fails closed");
+
+	// FSR/DLSS status: package, title eligibility and launch options. Never a GPU claim.
+	using TemporalStatus::FsrState;
+	const QString astro = QStringLiteral("PPSA21564");
+	const QString v107  = QStringLiteral("01.007.000");
+	const QString eboot = QStringLiteral("eboot.bin");
+	check(TemporalStatus::CertifiedFsrTitle(astro, v107, eboot) &&
+	          TemporalStatus::CertifiedFsrTitle(astro, v107, QStringLiteral("EBOOT.BIN")),
+	      "the certified FSR title is recognised");
+	check(!TemporalStatus::CertifiedFsrTitle(QStringLiteral("PPSA21567"), "01.019.000", eboot) &&
+	          !TemporalStatus::CertifiedFsrTitle(astro, "01.019.000", eboot) &&
+	          !TemporalStatus::CertifiedFsrTitle(astro, v107, "other.elf") &&
+	          !TemporalStatus::CertifiedFsrTitle({}, {}, eboot),
+	      "other titles, versions and executables are not certified");
+	TemporalStatus::FsrPackage  fsr_package;
+	TemporalStatus::DlssPackage dlss_package;
+	TemporalStatus::ParseBuildInfo(
+	    R"({"fsr3":{"bundled":true,"sdk":"1.1.4","gpu_probe_status":"not_run","installed_state":"updated"},
+	        "dlss":{"prototype_bundled":true,"sdk":"310.9.16","gpu_execution":"not_run"}})",
+	    &fsr_package, &dlss_package);
+	check(fsr_package.sdk == "1.1.4" && fsr_package.gpu_probe == "not_run" &&
+	          fsr_package.installed_state == "updated" && dlss_package.sdk == "310.9.16" &&
+	          dlss_package.gpu_execution == "not_run",
+	      "BUILD-INFO.json package fields are read");
+	TemporalStatus::FsrPackage unparsed;
+	TemporalStatus::ParseBuildInfo("not json", &unparsed, nullptr);
+	check(unparsed.sdk.isEmpty() && unparsed.gpu_probe.isEmpty(),
+	      "invalid BUILD-INFO.json is ignored");
+	auto status = TemporalStatus::EvaluateFsr(fsr_package, false, astro, v107, eboot, false);
+	check(status.state == FsrState::PackageMissing && !status.controls_enabled,
+	      "without the library FSR controls are disabled");
+	status = TemporalStatus::EvaluateFsr(fsr_package, false, astro, v107, eboot, true);
+	check(status.state == FsrState::PackageMissing && status.controls_enabled,
+	      "saved FSR options stay editable so they can be cleared");
+	fsr_package.library = true;
+	status = TemporalStatus::EvaluateFsr(fsr_package, false, astro, v107, eboot, false);
+	check(status.state == FsrState::Experimental && status.controls_enabled &&
+	          status.text.contains("not run") && status.text.contains("original image") &&
+	          !status.text.contains("passed"),
+	      "the certified title is experimental, with an honest probe state and fallback");
+	fsr_package.gpu_probe = QStringLiteral("passed");
+	status = TemporalStatus::EvaluateFsr(fsr_package, false, astro, v107, eboot, false);
+	check(status.text.contains("not gameplay"),
+	      "a passed offscreen probe is not called gameplay proof");
+	status = TemporalStatus::EvaluateFsr(fsr_package, false, QStringLiteral("PPSA21567"),
+	                                     "01.019.000", eboot, false);
+	check(status.state == FsrState::UnsupportedTitle && !status.controls_enabled &&
+	          status.text.contains("PPSA21567 01.019.000"),
+	      "an uncertified title reports the actual title/version and keeps FSR off");
+	status = TemporalStatus::EvaluateFsr(fsr_package, true, {}, {}, eboot, false);
+	check(status.state == FsrState::GlobalSettings && status.controls_enabled &&
+	          status.text.contains("PPSA21564 01.007.000"),
+	      "global FSR defaults name the only certified title");
+	auto launch = TemporalStatus::EffectiveFsrLaunch(fsr_package, astro, v107, eboot,
+	                                                 QStringLiteral("quality"), true);
+	check(launch.upscale == "quality" && launch.frame_generation && launch.reason.isEmpty(),
+	      "the certified title receives the requested FSR options");
+	launch =
+	    TemporalStatus::EffectiveFsrLaunch(fsr_package, QStringLiteral("PPSA21567"), "01.019.000",
+	                                       eboot, QStringLiteral("quality"), true);
+	check(launch.upscale == "off" && !launch.frame_generation &&
+	          launch.reason.contains("PPSA21567"),
+	      "an uncertified title starts with FSR off and a reason");
+	launch = TemporalStatus::EffectiveFsrLaunch(fsr_package, QStringLiteral("PPSA21567"),
+	                                            "01.019.000", eboot, QStringLiteral("off"), false);
+	check(launch.upscale == "off" && !launch.frame_generation && launch.reason.isEmpty(),
+	      "FSR that is not requested needs no reason");
+	fsr_package.library = false;
+	launch = TemporalStatus::EffectiveFsrLaunch(fsr_package, astro, v107, eboot, {}, true);
+	check(!launch.frame_generation && launch.reason.contains("not installed"),
+	      "a missing library starts with FSR off");
+	check(TemporalStatus::DlssStatusText(dlss_package).startsWith("DLSS: not available in games."),
+	      "no DLSS package is never available in games");
+	dlss_package.checks  = true;
+	const auto dlss_text = TemporalStatus::DlssStatusText(dlss_package);
+	check(dlss_text.startsWith("DLSS: not available in games.") && dlss_text.contains("310.9.16") &&
+	          dlss_text.contains("no DLSS GPU work has run") && !dlss_text.contains("active"),
+	      "installed DLSS link checks are never reported as an active game feature");
+	QTemporaryDir runtime;
+	check(runtime.isValid() && QDir(runtime.path()).mkpath("Experiments/FSR3"),
+	      "create an isolated runtime folder");
+	QFile(runtime.filePath("Experiments/FSR3/amd_fidelityfx_vk.dll")).open(QIODevice::WriteOnly);
+	const auto read = TemporalStatus::ReadFsrPackage(runtime.path());
+	check(read.library && !read.probe && read.sdk.isEmpty(),
+	      "the runtime package files are detected without a manifest");
+	check(!TemporalStatus::ReadDlssPackage(runtime.path()).checks,
+	      "an absent DLSS package is detected");
 	return failures == 0 ? 0 : 1;
 }

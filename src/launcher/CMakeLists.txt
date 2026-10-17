@@ -54,6 +54,7 @@ if(BUILD_TESTING)
 		"${KYTY_TESTS_DIR}/LauncherPresentationConfigTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/configuration.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/cheatFile.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/temporalStatus.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/include/configuration.h")
 	target_include_directories(launcher_presentation_config_tests PRIVATE
 		"${CMAKE_CURRENT_SOURCE_DIR}/include")
