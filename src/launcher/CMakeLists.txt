@@ -49,6 +49,22 @@ endif()
 
 add_dependencies(launcher kyty_emulator)
 
+if(BUILD_TESTING)
+	add_executable(launcher_presentation_config_tests EXCLUDE_FROM_ALL
+		"${KYTY_TESTS_DIR}/LauncherPresentationConfigTests.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/configuration.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/include/configuration.h")
+	target_include_directories(launcher_presentation_config_tests PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/include")
+	target_link_libraries(launcher_presentation_config_tests Qt6::Widgets)
+	set_target_properties(launcher_presentation_config_tests PROPERTIES AUTOMOC ON)
+	if(KYTY_CLANG_CL AND KYTY_LOCAL_MSVC_COMPAT_VERSION)
+		target_compile_options(launcher_presentation_config_tests PRIVATE
+			"/clang:-fms-compatibility-version=${KYTY_LOCAL_MSVC_COMPAT_VERSION}")
+	endif()
+	add_test(NAME launcher_presentation_config COMMAND $<TARGET_FILE:launcher_presentation_config_tests>)
+endif()
+
 if(KYTY_CLANG_CL)
 	add_custom_command(TARGET launcher POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_PDB_FILE:kyty_emulator> $<TARGET_FILE_DIR:launcher>/$<TARGET_PDB_FILE_NAME:kyty_emulator>

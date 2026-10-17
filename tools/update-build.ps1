@@ -13,7 +13,7 @@ if (!$SkipBuild) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-windows-local.ps1') -Configure
     if ($LASTEXITCODE -ne 0) { throw 'Build failed; installed binaries were not updated.' }
 }
-& "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R '^(presentation_timing|simulation_clock_profile|presentation_config|cpu_placement.*)$'
+& "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|cpu_placement.*)$'
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed; installed binaries were not updated.' }
 & "$taskCmakeBin\cmake.exe" --install $taskBuild --prefix $taskStage
 if ($LASTEXITCODE -ne 0) { throw 'Staging the runnable build failed.' }
