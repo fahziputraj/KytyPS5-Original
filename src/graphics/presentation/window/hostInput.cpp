@@ -7,6 +7,7 @@
 #include "common/emulatorConfig.h"
 #include "common/hostInputTrace.h"
 #include "common/logging/log.h"
+#include "common/padInputDefaults.h"
 #include "libs/controller.h"
 
 #include <algorithm>
@@ -112,23 +113,6 @@ constexpr std::size_t LEFT_TRIGGER_SOURCE  = PAD_SOURCES.size() - 2;
 constexpr std::size_t RIGHT_TRIGGER_SOURCE = PAD_SOURCES.size() - 1;
 constexpr std::size_t INVALID_SOURCE       = PAD_SOURCES.size();
 
-struct PadDefault {
-	std::string_view control;
-	std::string_view source;
-};
-
-constexpr std::array PAD_DEFAULTS = {
-    PadDefault {"Cross", "South"},         PadDefault {"Circle", "East"},
-    PadDefault {"Square", "West"},         PadDefault {"Triangle", "North"},
-    PadDefault {"Options", "Start"},       PadDefault {"L3", "LeftStick"},
-    PadDefault {"R3", "RightStick"},       PadDefault {"L1", "LeftShoulder"},
-    PadDefault {"R1", "RightShoulder"},    PadDefault {"L2", "LeftTrigger"},
-    PadDefault {"R2", "RightTrigger"},     PadDefault {"Up", "DpadUp"},
-    PadDefault {"Down", "DpadDown"},       PadDefault {"Left", "DpadLeft"},
-    PadDefault {"Right", "DpadRight"},     PadDefault {"TouchPad", "Touchpad"},
-    PadDefault {"GyroToggle", "Back"},
-};
-
 constexpr std::string_view PAD_PREFIX = "Pad:";
 
 struct Binding {
@@ -230,7 +214,8 @@ public:
 				continue;
 			}
 			if (entry == "Pad=Disabled") {
-				m_custom_pad = true;
+				m_custom_pad   = true;
+				m_pad_disabled = true;
 				continue;
 			}
 			if (entry.starts_with(MOUSE_SENSITIVITY)) {
@@ -268,12 +253,14 @@ public:
 			Add(binding);
 		}
 		if (!m_custom_pad) {
-			for (const auto& item: PAD_DEFAULTS) {
+			for (const auto& item: Common::PAD_DEFAULT_BINDINGS) {
 				AssignPad(ControlFromName(item.control), SourceFromName(item.source));
 			}
 		}
 	}
 	[[nodiscard]] bool  Custom() const { return m_custom; }
+	// The controller tab was disabled: gamepad sources produce no guest input.
+	[[nodiscard]] bool  PadDisabled() const { return m_pad_disabled; }
 	[[nodiscard]] float MouseSensitivity() const { return m_mouse_sensitivity; }
 
 	[[nodiscard]] std::size_t PadControl(std::size_t source) const {
@@ -354,6 +341,7 @@ private:
 	}();
 	bool                                     m_custom = false;
 	bool                                     m_custom_pad = false;
+	bool                                     m_pad_disabled      = false;
 	std::size_t                              m_size              = 0;
 	float                                    m_mouse_sensitivity = 1.0f;
 };
@@ -361,6 +349,13 @@ private:
 const InputMap& GetInputMap() {
 	static const InputMap map;
 	return map;
+}
+
+// Pads without a touchpad (Xbox, Switch, ...) cannot click it, which blocks games that need
+// it. An unbound Back/View is their centred click unless the controller tab is disabled.
+bool BackClicksTouchPad(std::size_t source, const InputMap& map, bool pad_has_touchpad) {
+	return source == InputMap::SourceFromButton(SDL_GAMEPAD_BUTTON_BACK) &&
+	       map.PadControl(source) == INVALID_CONTROL && !map.PadDisabled() && !pad_has_touchpad;
 }
 
 void SetButton(uint32_t button, bool down) {
@@ -726,6 +721,17 @@ int PollGamepadTouchPad(uint64_t now_ms) {
 void HostInputPadButton(int id, int button, bool down) {
 	const auto  source = InputMap::SourceFromButton(button);
 	const auto& map    = GetInputMap();
+	auto*       pad    = SDL_GetGamepadFromID(static_cast<SDL_JoystickID>(id));
+	if (BackClicksTouchPad(source, map, pad == nullptr || SDL_GetNumGamepadTouchpads(pad) > 0)) {
+		if (down) {
+			Controller::SetTouchPad(id, 0, true, 0.5f, 0.5f);
+		}
+		Controller::SetButton(id, Controller::PAD_BUTTON_TOUCH_PAD, down);
+		if (!down) {
+			Controller::SetTouchPad(id, 0, false, 0.5f, 0.5f);
+		}
+		return;
+	}
 	ApplyPadControl(id, map.PadControl(source), source, down);
 }
 

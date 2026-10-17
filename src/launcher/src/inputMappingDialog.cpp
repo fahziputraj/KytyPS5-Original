@@ -1,5 +1,6 @@
 ﻿#include "inputMappingDialog.h"
 
+#include "common/padInputDefaults.h"
 #include "controllerPreview.h"
 #include "dualsenseWidget.h"
 
@@ -43,47 +44,53 @@ const char* const SECTION_TITLES[SectionCount] = {
     QT_TR_NOOP("Right stick"),          QT_TR_NOOP("In-game shortcuts (cycle)"),
 };
 
-// pad_default is null for controls that have no gamepad equivalent.
+// pad is false for controls that have no gamepad equivalent. Controller defaults come from
+// Common::PAD_DEFAULT_BINDINGS, which the emulator uses too.
 struct PadControl {
 	const char* id;
 	const char* label;
 	const char* keyboard_default;
-	const char* pad_default;
+	bool        pad;
 	Section     section;
 };
 
 constexpr PadControl PAD_CONTROLS[] = {
-    {"Cross", "Cross", "J", "South", Face},
-    {"Circle", "Circle", "L", "East", Face},
-    {"Square", "Square", "K", "West", Face},
-    {"Triangle", "Triangle", "I", "North", Face},
-    {"Up", "Up", "Up", "DpadUp", Dpad},
-    {"Down", "Down", "Down", "DpadDown", Dpad},
-    {"Left", "Left", "Left", "DpadLeft", Dpad},
-    {"Right", "Right", "Right", "DpadRight", Dpad},
-    {"L1", "L1", "Q", "LeftShoulder", Shoulders},
-    {"R1", "R1", "E", "RightShoulder", Shoulders},
-    {"L2", "L2", "Z", "LeftTrigger", Shoulders},
-    {"R2", "R2", "C", "RightTrigger", Shoulders},
-    {"L3", "L3 (left stick click)", "Left Shift", "LeftStick", Sticks},
-    {"R3", "R3 (right stick click)", "Left Ctrl", "RightStick", Sticks},
-    {"Options", "Options", "Return", "Start", System},
-    {"TouchPad", "Touch pad click", "Backspace", "Touchpad", System},
-    {"TouchPadRight", "Touch pad right", "Tab", nullptr, System},
-    {"GyroToggle", "Gyro emulation toggle", "", "Back", System},
-    {"TouchPadMode", "Emulated touch pad mode", "F6", "", System},
-    {"LeftStickUp", "Up", "W", nullptr, LeftStick},
-    {"LeftStickDown", "Down", "S", nullptr, LeftStick},
-    {"LeftStickLeft", "Left", "A", nullptr, LeftStick},
-    {"LeftStickRight", "Right", "D", nullptr, LeftStick},
-    {"RightStickUp", "Up", "T", nullptr, RightStick},
-    {"RightStickDown", "Down", "G", nullptr, RightStick},
-    {"RightStickLeft", "Left", "F", nullptr, RightStick},
-    {"RightStickRight", "Right", "H", nullptr, RightStick},
-    {"SpeakerVolume", "Speaker volume", "1", nullptr, Shortcuts},
-    {"VibrationIntensity", "Vibration intensity", "2", nullptr, Shortcuts},
-    {"TriggerEffectIntensity", "Trigger intensity", "3", nullptr, Shortcuts},
+    {"Cross", "Cross", "J", true, Face},
+    {"Circle", "Circle", "L", true, Face},
+    {"Square", "Square", "K", true, Face},
+    {"Triangle", "Triangle", "I", true, Face},
+    {"Up", "Up", "Up", true, Dpad},
+    {"Down", "Down", "Down", true, Dpad},
+    {"Left", "Left", "Left", true, Dpad},
+    {"Right", "Right", "Right", true, Dpad},
+    {"L1", "L1", "Q", true, Shoulders},
+    {"R1", "R1", "E", true, Shoulders},
+    {"L2", "L2", "Z", true, Shoulders},
+    {"R2", "R2", "C", true, Shoulders},
+    {"L3", "L3 (left stick click)", "Left Shift", true, Sticks},
+    {"R3", "R3 (right stick click)", "Left Ctrl", true, Sticks},
+    {"Options", "Options", "Return", true, System},
+    {"TouchPad", "Touch pad click", "Backspace", true, System},
+    {"TouchPadRight", "Touch pad right", "Tab", false, System},
+    {"GyroToggle", "Gyro emulation toggle", "", true, System},
+    {"TouchPadMode", "Emulated touch pad mode", "F6", true, System},
+    {"LeftStickUp", "Up", "W", false, LeftStick},
+    {"LeftStickDown", "Down", "S", false, LeftStick},
+    {"LeftStickLeft", "Left", "A", false, LeftStick},
+    {"LeftStickRight", "Right", "D", false, LeftStick},
+    {"RightStickUp", "Up", "T", false, RightStick},
+    {"RightStickDown", "Down", "G", false, RightStick},
+    {"RightStickLeft", "Left", "F", false, RightStick},
+    {"RightStickRight", "Right", "H", false, RightStick},
+    {"SpeakerVolume", "Speaker volume", "1", false, Shortcuts},
+    {"VibrationIntensity", "Vibration intensity", "2", false, Shortcuts},
+    {"TriggerEffectIntensity", "Trigger intensity", "3", false, Shortcuts},
 };
+
+QString DefaultPadBinding(const char* control) {
+	const auto source = Common::DefaultPadSource(control);
+	return QString::fromLatin1(source.data(), static_cast<qsizetype>(source.size()));
+}
 
 struct PadSourceName {
 	const char* id;
@@ -372,8 +379,8 @@ InputMappingDialog::InputMappingDialog(const QStringList& mapping, ControllerPre
 		if (!m_custom_bindings && control.keyboard_default[0] != '\0') {
 			m_bindings.insert(id, QString::fromLatin1(control.keyboard_default));
 		}
-		if (!m_custom_pad && control.pad_default != nullptr) {
-			m_pad_bindings.insert(id, QString::fromLatin1(control.pad_default));
+		if (!m_custom_pad && control.pad) {
+			m_pad_bindings.insert(id, DefaultPadBinding(control.id));
 		}
 	}
 
@@ -487,7 +494,7 @@ QWidget* InputMappingDialog::BuildTab(bool pad) {
 		QGridLayout* rows  = nullptr;
 		int          row   = 0;
 		for (const auto& control: PAD_CONTROLS) {
-			if (control.section != section || (pad && control.pad_default == nullptr)) {
+			if (control.section != section || (pad && !control.pad)) {
 				continue;
 			}
 			if (group == nullptr) {
@@ -655,9 +662,9 @@ void InputMappingDialog::RestoreDefaults() {
 	if (m_tabs->currentIndex() == 0) {
 		m_pad_bindings.clear();
 		for (const auto& control: PAD_CONTROLS) {
-			if (control.pad_default != nullptr) {
+			if (control.pad) {
 				m_pad_bindings.insert(QString::fromLatin1(control.id),
-				                      QString::fromLatin1(control.pad_default));
+				                      DefaultPadBinding(control.id));
 			}
 		}
 		m_custom_pad = false;

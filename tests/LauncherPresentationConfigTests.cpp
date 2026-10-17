@@ -1,4 +1,5 @@
 #include "cheatFile.h"
+#include "common/padInputDefaults.h"
 #include "configuration.h"
 #include "temporalStatus.h"
 
@@ -147,6 +148,17 @@ int main(int argc, char** argv) {
 	      "other active timing mods cannot silently conflict");
 	check(!Cheats::SelectClockProfile({}, profiles, "guess", &selected).isEmpty(),
 	      "unknown clock selection fails closed");
+
+	// The launcher and emulator share one table of controller defaults.
+	bool gyro_toggle_default = false;
+	for (const auto& binding: Common::PAD_DEFAULT_BINDINGS) {
+		gyro_toggle_default = gyro_toggle_default || binding.control == "GyroToggle";
+	}
+	check(!gyro_toggle_default && Common::DefaultPadSource("GyroToggle").empty(),
+	      "GyroToggle has no default controller binding");
+	check(Common::DefaultPadSource("TouchPad") == "Touchpad" &&
+	          Common::DefaultPadSource("Cross") == "South",
+	      "touchpad and face-button defaults are shared");
 
 	// Keyboard and controller bindings survive the INI and per-game inheritance unchanged.
 	Configuration mapped;

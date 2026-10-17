@@ -16,6 +16,11 @@ std::array<Sint16, 2> physical_stick {};
 std::array<int, 2>    guest_stick {128, 128};
 uint32_t             guest_buttons = 0;
 bool                 guest_touch   = false;
+// Pad 2: buttons and the first touchpad finger, for pads that have their own touchpad.
+uint32_t guest_buttons2  = 0;
+bool     guest_touch0    = false;
+float    guest_touch0_x  = 0.0f;
+int      guest_touch0_id = 0;
 } // namespace
 
 namespace Fake {
@@ -39,6 +44,10 @@ SDL_MouseButtonFlags GetMouseState(float* x, float* y) {
 	*x = *y = 0.0f;
 	return 0;
 }
+// Pad 1 has no touchpad (Xbox-style); pad 2 has one (DualSense-style).
+int GetNumGamepadTouchpads(SDL_Gamepad* pad) {
+	return pad == reinterpret_cast<SDL_Gamepad*>(static_cast<uintptr_t>(2)) ? 1 : 0;
+}
 } // namespace Fake
 
 #define SDL_GetGamepadFromID Fake::GetGamepadFromID
@@ -47,6 +56,7 @@ SDL_MouseButtonFlags GetMouseState(float* x, float* y) {
 #define SDL_HideCursor       Fake::HideCursor
 #define SDL_ShowCursor       Fake::ShowCursor
 #define SDL_GetMouseState    Fake::GetMouseState
+#define SDL_GetNumGamepadTouchpads Fake::GetNumGamepadTouchpads
 #include "graphics/presentation/window/hostInput.cpp"
 #undef SDL_GetGamepadFromID
 #undef SDL_GetGamepadAxis
@@ -54,11 +64,14 @@ SDL_MouseButtonFlags GetMouseState(float* x, float* y) {
 #undef SDL_HideCursor
 #undef SDL_ShowCursor
 #undef SDL_GetMouseState
+#undef SDL_GetNumGamepadTouchpads
 
 namespace Libs::Controller {
 void SetButton(int id, uint32_t button, bool down) {
 	if (id == 1) {
 		guest_buttons = down ? guest_buttons | button : guest_buttons & ~button;
+	} else if (id == 2) {
+		guest_buttons2 = down ? guest_buttons2 | button : guest_buttons2 & ~button;
 	}
 }
 void SetAxis(int id, Axis axis, int value) {
@@ -66,9 +79,14 @@ void SetAxis(int id, Axis axis, int value) {
 		guest_stick[axis == Axis::LeftY ? 1 : 0] = value;
 	}
 }
-void SetTouchPad(int id, int finger, bool down, float, float) {
+void SetTouchPad(int id, int finger, bool down, float x, float) {
 	if (id == 1 && finger == 1) {
 		guest_touch = down;
+	}
+	if (finger == 0) {
+		guest_touch0    = down;
+		guest_touch0_x  = x;
+		guest_touch0_id = id;
 	}
 }
 void SetRightStick(int, int, int) {}
@@ -188,6 +206,45 @@ void TestDisabledMappingTabs() {
 	          mapped.PadControl(south) == ControlFromName("Circle"),
 	      "explicit mappings no longer override defaults");
 }
+// On a pad without a touchpad, an unbound Back is the touchpad click; GyroToggle has no default.
+void TestBackClicksTouchPadWithoutOne() {
+	const auto            back  = InputMap::SourceFromButton(SDL_GAMEPAD_BUTTON_BACK);
+	const auto            south = InputMap::SourceFromButton(SDL_GAMEPAD_BUTTON_SOUTH);
+	Config::ConfigOptions options;
+	Config::Load(options);
+	const InputMap defaults;
+	Check(defaults.PadControl(back) == INVALID_CONTROL, "GyroToggle still has a default on Back");
+	Check(BackClicksTouchPad(back, defaults, false) && !BackClicksTouchPad(back, defaults, true) &&
+	          !BackClicksTouchPad(south, defaults, false),
+	      "Back did not click the touchpad only on a pad without one");
+	options.keymap = {"Pad:Cross=Back"};
+	Config::Load(options);
+	const InputMap rebound;
+	Check(!BackClicksTouchPad(back, rebound, false),
+	      "a Back binding was overridden by the touchpad");
+	options.keymap = {"Pad=Disabled"};
+	Config::Load(options);
+	const InputMap disabled;
+	Check(disabled.PadDisabled() && !BackClicksTouchPad(back, disabled, false),
+	      "a disabled controller tab still clicked the touchpad");
+	Check(!rebound.PadDisabled() && !defaults.PadDisabled(), "only Pad=Disabled disables the tab");
+
+	// End to end with the process's input map (custom pad bindings that leave Back unbound).
+	Inputs inputs;
+	HostInputPadButton(1, SDL_GAMEPAD_BUTTON_BACK, true);
+	Check((guest_buttons & PAD_BUTTON_TOUCH_PAD) != 0 && guest_touch0 && guest_touch0_id == 1 &&
+	          guest_touch0_x == 0.5f,
+	      "Back did not click the touchpad centre on a pad without one");
+	HostInputPadButton(1, SDL_GAMEPAD_BUTTON_BACK, false);
+	Check((guest_buttons & PAD_BUTTON_TOUCH_PAD) == 0 && !guest_touch0,
+	      "releasing Back did not release the touchpad");
+	guest_touch0_id = 0;
+	HostInputPadButton(2, SDL_GAMEPAD_BUTTON_BACK, true);
+	Check(guest_buttons2 == 0 && guest_touch0_id == 0,
+	      "Back clicked the touchpad on a pad that has its own");
+	HostInputPadButton(2, SDL_GAMEPAD_BUTTON_BACK, false);
+}
+
 // Lists saved by this fork's launcher before the upstream port keep their meaning.
 void TestForkKeymapStillLoads() {
 	Config::ConfigOptions options;
@@ -214,6 +271,7 @@ int main() {
 	TestTriggerLifecycleReset();
 	TestDisabledMappingTabs();
 	TestForkKeymapStillLoads();
+	TestBackClicksTouchPadWithoutOne();
 	Config::Shutdown();
 	return 0;
 }

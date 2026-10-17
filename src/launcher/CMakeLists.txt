@@ -57,7 +57,7 @@ if(BUILD_TESTING)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/temporalStatus.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/include/configuration.h")
 	target_include_directories(launcher_presentation_config_tests PRIVATE
-		"${CMAKE_CURRENT_SOURCE_DIR}/include")
+		"${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/src")
 	target_link_libraries(launcher_presentation_config_tests Qt6::Widgets)
 	file(COPY
 		"${CMAKE_SOURCE_DIR}/patches/PPSA21564-01.007-clock30.json"
