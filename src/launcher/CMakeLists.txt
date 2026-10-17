@@ -79,6 +79,8 @@ if(BUILD_TESTING)
 		"${KYTY_TESTS_DIR}/LauncherConsoleUiTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/consoleTheme.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/include/consoleTheme.h"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/focusGrid.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/include/focusGrid.h"
 		"${CMAKE_CURRENT_SOURCE_DIR}/resources.qrc")
 	target_include_directories(launcher_console_ui_tests PRIVATE
 		"${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/src")
