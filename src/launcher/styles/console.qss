@@ -1,0 +1,125 @@
+/*
+ * Console launcher style sheet.
+ *
+ * Every colour is a placeholder written between two at-signs. ConsoleTheme::StyleSheet()
+ * replaces it with the matching ConsoleTheme::Tokens value: bg, rail, surface1, surface2,
+ * hero_base, hero_accent, accent, text_primary, text_secondary, text_muted, success,
+ * warning, danger and focus. Keep raw hex colours and any other at-sign out of this file.
+ *
+ * Widgets opt in by object name or by a dynamic property:
+ *   #consolePage                      page background
+ *   #consoleRail                      navigation rail panel
+ *   QLineEdit#search                  search field
+ *   QPushButton[pill="true"]          secondary pill button
+ *   QPushButton[primary="true"]       the one primary (white) button of a screen
+ *   QToolButton[rail="true"]          rail button (checkable, checked = current page)
+ *
+ * Qt style sheets have no outline-offset, so the focus ring is a 2 px white border that is
+ * transparent while unfocused; layouts therefore do not move when focus does. Pages that paint
+ * themselves draw the ring 3 px off the widget instead. Keep the :focus rules last.
+ */
+
+#consolePage {
+    background: @bg@;
+    color: @text_primary@;
+    font-size: 15px;
+    font-weight: 400;
+}
+
+#consoleRail {
+    background: @rail@;
+}
+
+QLineEdit#search {
+    background: @surface1@;
+    color: @text_primary@;
+    border: 2px solid transparent;
+    border-radius: 22px;
+    padding: 0 16px;
+    min-height: 40px;
+    font-size: 15px;
+    font-weight: 400;
+    placeholder-text-color: @text_muted@;
+    selection-background-color: @accent@;
+    selection-color: @bg@;
+}
+
+QPushButton[pill="true"],
+QPushButton[primary="true"] {
+    border: 2px solid transparent;
+    border-radius: 22px;
+    padding: 0 20px;
+    min-height: 40px;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+QPushButton[pill="true"] {
+    background: @surface2@;
+    color: @text_primary@;
+}
+
+QPushButton[pill="true"]:hover {
+    background: @hero_accent@;
+}
+
+QPushButton[pill="true"]:pressed {
+    background: @hero_base@;
+}
+
+QPushButton[pill="true"]:disabled {
+    background: @surface1@;
+    color: @text_muted@;
+}
+
+/* A primary button needs no pill property. */
+QPushButton[primary="true"] {
+    background: white;
+    color: @bg@;
+}
+
+QPushButton[primary="true"]:hover {
+    background: @text_primary@;
+}
+
+QPushButton[primary="true"]:pressed {
+    background: @text_secondary@;
+}
+
+QPushButton[primary="true"]:disabled {
+    background: @surface2@;
+    color: @text_muted@;
+}
+
+QToolButton[rail="true"] {
+    background: transparent;
+    color: @text_secondary@;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    padding: 8px;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+QToolButton[rail="true"]:hover {
+    background: @surface1@;
+    color: @text_primary@;
+}
+
+QToolButton[rail="true"]:checked {
+    background: @surface2@;
+    color: @text_primary@;
+    border-color: @accent@;
+}
+
+QToolButton[rail="true"]:disabled {
+    color: @text_muted@;
+}
+
+/* Focus ring. */
+QLineEdit#search:focus,
+QPushButton[pill="true"]:focus,
+QPushButton[primary="true"]:focus,
+QToolButton[rail="true"]:focus {
+    border: 2px solid @focus@;
+}

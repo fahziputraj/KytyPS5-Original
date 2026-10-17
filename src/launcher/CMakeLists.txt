@@ -71,6 +71,35 @@ if(BUILD_TESTING)
 			"/clang:-fms-compatibility-version=${KYTY_LOCAL_MSVC_COMPAT_VERSION}")
 	endif()
 	add_test(NAME launcher_presentation_config COMMAND $<TARGET_FILE:launcher_presentation_config_tests>)
+
+	# Console launcher UI: theme tokens and bundled font now, one page or widget per later task.
+	# resources.qrc is compiled in (AUTORCC) so the tests load the same font and style sheet the
+	# launcher ships.
+	add_executable(launcher_console_ui_tests EXCLUDE_FROM_ALL
+		"${KYTY_TESTS_DIR}/LauncherConsoleUiTests.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/consoleTheme.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/include/consoleTheme.h"
+		"${CMAKE_CURRENT_SOURCE_DIR}/resources.qrc")
+	target_include_directories(launcher_console_ui_tests PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/src")
+	target_link_libraries(launcher_console_ui_tests Qt6::Widgets Qt6::Concurrent)
+	set_target_properties(launcher_console_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
+	if(KYTY_CLANG_CL AND KYTY_LOCAL_MSVC_COMPAT_VERSION)
+		target_compile_options(launcher_console_ui_tests PRIVATE
+			"/clang:-fms-compatibility-version=${KYTY_LOCAL_MSVC_COMPAT_VERSION}")
+	endif()
+	add_test(NAME launcher_console_ui COMMAND $<TARGET_FILE:launcher_console_ui_tests>)
+	# The Qt copy that windeployqt puts beside the launcher carries only the windows platform
+	# plugin, and a missing platform plugin ends in a modal message box that never closes, so
+	# point the test at the Qt installation's own plugins (which include offscreen).
+	set(kyty_ui_test_environment "QT_QPA_PLATFORM=offscreen")
+	get_filename_component(kyty_ui_test_qt_plugins "${Qt6_DIR}/../../../plugins" ABSOLUTE)
+	if(IS_DIRECTORY "${kyty_ui_test_qt_plugins}/platforms")
+		list(APPEND kyty_ui_test_environment "QT_PLUGIN_PATH=${kyty_ui_test_qt_plugins}")
+	endif()
+	set_tests_properties(launcher_console_ui PROPERTIES
+		ENVIRONMENT "${kyty_ui_test_environment}"
+		TIMEOUT 120)
 endif()
 
 if(KYTY_CLANG_CL)
