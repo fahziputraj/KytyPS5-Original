@@ -80,3 +80,21 @@ local INI under `_Build/runtime-smoke`; normal settings were not used or changed
 The manifest hashes matched the installed emulator and launcher. The optional
 FSR probe, signed AMD library and license were bundled, with GPU execution
 explicitly recorded as not run. No game session was started.
+
+The final build gate exposed intermittent CPU-placement test failures while a
+newly assigned recorder thread was still moving to its selected CPU set. The
+Windows test now verifies the selected IDs and allows at most one second for
+that scheduling transition before sampling residency. All existing residency,
+histogram and off-core assertions remain; emulator scheduling is unchanged.
+Both recorder variants then passed five consecutive runs each, and the complete
+11-test delivery suite passed with the focused change.
+
+The owner's startup log on this machine reported Intel UHD Graphics 730 missing
+`fragmentShaderBarycentric` and `shaderBufferInt64Atomics`. Kyty rejects that
+device before guest rendering, independently of FSR being enabled. This machine
+can compile the runtime and run CPU development tests, but the current renderer
+cannot run the game here. The game folder on F: is Astro Bot 01.019 (PPSA21567),
+which is outside the bundled PPSA21564 01.007 clock/temporal adapter checks. Do
+not bypass the Vulkan feature requirements or apply those older game patches to
+try to make this machine boot it. GPU execution and gameplay remain pending on
+supported hardware.

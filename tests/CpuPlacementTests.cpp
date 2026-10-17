@@ -17,6 +17,7 @@
 #include "common/profiler.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <chrono>
@@ -47,6 +48,7 @@ using Profiler::FrameEvent;
 
 void Check(bool value, const char* text) {
 	if (!value) {
+		std::fflush(stdout);
 		std::fprintf(stderr, "CpuPlacementTests: failed: %s\n", text);
 		std::fflush(stderr);
 		std::abort();
@@ -306,6 +308,30 @@ void TestAffinityAndModes() {
 
 volatile uint64_t g_sink = 0;
 
+// CPU Sets are a soft scheduler assignment. Verify the installed selection and
+// allow a bounded scheduling transition before measuring steady-state residency.
+// No hard affinity is added, and all later off-core assertions remain in force.
+void AwaitPlacement(const std::vector<uint32_t>& ids, uint64_t mask) {
+	std::array<ULONG, 64> selected {};
+	ULONG                 count = 0;
+	Check(GetThreadSelectedCpuSets(GetCurrentThread(), selected.data(),
+	                               static_cast<ULONG>(selected.size()), &count) != 0 &&
+	          count <= selected.size(),
+	      "querying the thread's selected CPU sets");
+	std::vector<ULONG> actual(selected.begin(), selected.begin() + count);
+	std::vector<ULONG> expected(ids.begin(), ids.end());
+	std::sort(actual.begin(), actual.end());
+	std::sort(expected.begin(), expected.end());
+	Check(actual == expected, "the thread's selected CPU sets match its role");
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+	do {
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		const auto logical = Common::CurrentLogicalProcessor();
+		if (logical < 64 && ((uint64_t {1} << logical) & mask) != 0) return;
+	} while (std::chrono::steady_clock::now() < deadline);
+	Check(false, "the scheduler did not move the thread onto its selected processors");
+}
+
 // Busy for `ms` milliseconds; the logical processors it ran on (and placement samples as `role`).
 uint64_t RunAndRecord(uint32_t ms, const Common::ThreadRole* role = nullptr) {
 	uint64_t   seen = 0;
@@ -437,11 +463,15 @@ void TestLive(CpuReserveMode mode) {
 		Load        load(load_seen);
 		std::thread cp([&] {
 			Common::PlaceCurrentThread(Common::ThreadRole::Cp);
+			AwaitPlacement(layout.cp_ids, layout.cp_mask);
 			const auto role = Common::ThreadRole::Cp;
 			cp_seen         = RunAndRecord(500, &role);
 		});
 		std::thread recorder([&] {
 			Common::PlaceCurrentThread(Common::ThreadRole::Recorder);
+			AwaitPlacement(layout.recorder_ids, mode == CpuReserveMode::CpRecorder
+			                                        ? layout.recorder_mask
+			                                        : layout.general_mask);
 			const auto role = Common::ThreadRole::Recorder;
 			recorder_seen   = RunAndRecord(500, &role);
 		});
@@ -569,6 +599,7 @@ void TestLive(CpuReserveMode mode) {
 			Load        load(load_after);
 			std::thread cp([&] {
 				Common::PlaceCurrentThread(Common::ThreadRole::Cp);
+				AwaitPlacement(narrowed.cp_ids, narrowed.cp_mask);
 				cp_after = RunAndRecord(300);
 			});
 			cp.join();
