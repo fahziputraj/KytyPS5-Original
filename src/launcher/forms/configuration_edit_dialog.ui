@@ -16,7 +16,13 @@
   <property name="locale">
    <locale language="English" country="UnitedStates"/>
   </property>
-  <layout class="QGridLayout" name="gridLayout">
+  <layout class="QVBoxLayout" name="dialogLayout">
+   <item>
+    <widget class="QScrollArea" name="settingsScrollArea">
+     <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
+     <property name="widgetResizable"><bool>true</bool></property>
+     <widget class="QWidget" name="settingsContent">
+      <layout class="QGridLayout" name="gridLayout">
    <property name="horizontalSpacing">
     <number>8</number>
    </property>
@@ -576,7 +582,11 @@ To use your own sound, replace the emulator's assets/sounds/trophy-unlock.wav wi
      </layout>
     </widget>
    </item>
-   <item row="2" column="0" colspan="2">
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
     <layout class="QHBoxLayout" name="buttonLayout">
      <item>
      <widget class="QPushButton" name="clear_button">
