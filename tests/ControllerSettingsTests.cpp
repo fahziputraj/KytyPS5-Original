@@ -575,6 +575,91 @@ void TestMotionIntegrationAndHistory() {
 	motion_capable[1] = false;
 }
 
+// Right-stick tilt is a second motion source: it overrides the physical gyro while enabled and
+// hands back a neutral, non-stale pose when disabled.
+void TestEmulatedTiltOverridesPhysicalMotion() {
+	motion_capable[1] = true;
+	{
+		Controller  controller;
+		const float gravity[] {0.0f, SDL_STANDARD_GRAVITY, 0.0f};
+		const float rotation[] {0.0f, 1.57079632679f, 0.0f};
+		const float still[] {0.0f, 0.0f, 0.0f};
+		PadData     data[64] {};
+		const auto  neutral = [&](const char* text) {
+			Check(PadReadState(1, data) == 0 && data[0].orientation_x == 0.0f &&
+			          data[0].orientation_y == 0.0f && data[0].orientation_z == 0.0f &&
+			          data[0].orientation_w == 1.0f && data[0].acceleration_y == 1.0f &&
+			          data[0].angular_velocity_y == 0.0f,
+			      text);
+		};
+		SetSensor(1, Sensor::Accel, gravity, 1000000);
+		SetSensor(1, Sensor::Gyro, still, 1000000);
+
+		// Full right deflection rolls 45 degrees, even though pad 1 has a physical gyro.
+		ToggleGyroEmulation(1);
+		SetAxis(1, Axis::RightX, 255);
+		Check(PadReadState(1, data) == 0 &&
+		          std::abs(data[0].orientation_z + 0.38268343f) < 0.001f &&
+		          std::abs(data[0].orientation_w - 0.92387953f) < 0.001f &&
+		          data[0].right_stick_x == 128,
+		      "tilt was refused on a pad with a physical gyro or kept the stick");
+
+		// Physical samples do not move the pose while tilt is on.
+		SetSensor(1, Sensor::Gyro, rotation, 1010000);
+		SetSensor(1, Sensor::Gyro, rotation, 1020000);
+		Check(PadReadState(1, data) == 0 &&
+		          std::abs(data[0].orientation_z + 0.38268343f) < 0.001f &&
+		          data[0].orientation_y == 0.0f,
+		      "the physical gyro moved the pose while tilt was on");
+
+		// Tilt updates are published at the motion history rate (250 Hz by default).
+		(void)PadRead(1, data, 64);
+		for (int i = 0; i < 10; ++i) {
+			SetAxis(1, Axis::RightY, 128 + i * 10);
+		}
+		ControllerState states[64];
+		bool            connected = false;
+		int             count     = 0;
+		Check(g_controller->ReadStates(states, 64, &connected, &count) <= 1,
+		      "tilt updates bypassed the motion history rate");
+
+		// While the game has disabled motion, tilt keeps the stick but reports a neutral pose.
+		Check(PadSetMotionSensorState(1, false) == 0, "motion disable failed");
+		SetAxis(1, Axis::RightX, 0);
+		neutral("tilt moved the pose while the game had disabled motion");
+		Check(PadReadState(1, data) == 0 && data[0].right_stick_x == 128,
+		      "tilt released the stick while motion was disabled");
+		Check(PadSetMotionSensorState(1, true) == 0, "motion enable failed");
+
+		// Turning tilt off: neutral pose, current stick, and no rotation from the tilt period.
+		SetAxis(1, Axis::RightX, 200);
+		SetAxis(1, Axis::RightY, 128);
+		ToggleGyroEmulation(1);
+		neutral("disabling tilt left a tilted or moving pose");
+		Check(PadReadState(1, data) == 0 && data[0].right_stick_x == 200,
+		      "disabling tilt did not restore the right stick");
+		SetSensor(1, Sensor::Gyro, rotation, 1060000);
+		Check(PadReadState(1, data) == 0 && data[0].orientation_y == 0.0f &&
+		          data[0].orientation_w == 1.0f,
+		      "the first physical sample after tilt integrated the tilt period");
+		SetSensor(1, Sensor::Gyro, rotation, 1110000);
+		Check(PadReadState(1, data) == 0 && std::abs(data[0].orientation_y - 0.03925f) < 0.001f,
+		      "the physical gyro did not resume after tilt");
+
+		// Unplugging the pad while tilt is on leaves a neutral pose and tilt off on reconnect.
+		ToggleGyroEmulation(1);
+		SetAxis(1, Axis::RightX, 255);
+		Disconnect(1);
+		Connect(1);
+		UpdateHostMotion();
+		neutral("a reconnected pad kept the tilt pose");
+		SetAxis(1, Axis::RightX, 255);
+		Check(PadReadState(1, data) == 0 && data[0].right_stick_x == 255,
+		      "tilt stayed on after the pad reconnected");
+	}
+	motion_capable[1] = false;
+}
+
 void TestMotionSourceAndHardwareLifetime() {
 	motion_capable[1] = true;
 	motion_capable[2] = true;
@@ -654,6 +739,7 @@ int main() {
 	TestUnreadHistoryAndButtonEdges();
 	TestMotionIntegrationAndHistory();
 	TestMotionSourceAndHardwareLifetime();
+	TestEmulatedTiltOverridesPhysicalMotion();
 	Config::Shutdown();
 	return 0;
 }

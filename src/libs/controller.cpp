@@ -762,7 +762,7 @@ void GameController::Motion(int id, Sensor sensor, const float* data, uint64_t t
 		return;
 	}
 	Common::LockGuard lock(m_mutex);
-	if (id != m_motion_source_id || !m_motion_enabled) {
+	if (id != m_motion_source_id || !m_motion_enabled || m_gyro_emulation) {
 		return;
 	}
 
@@ -879,11 +879,16 @@ void GameController::UpdateEmulatedTilt() {
 	}
 	m_emulated_time = now;
 
-	m_state.time        = now;
+	m_state.time = now;
+	if (!m_motion_enabled) {
+		// The game disabled motion: the stick stays consumed, the pose stays neutral.
+		q    = {0.0f, 0.0f, 0.0f, 1.0f};
+		rate = {};
+	}
 	m_state.orientation = q;
 	m_state.accel       = QuatRotate(QuatConjugate(q), {0.0f, 1.0f, 0.0f});
 	m_state.gyro        = rate;
-	AddState();
+	AddMotionState(now);
 	// Angular velocity is only nonzero while the tilt changes.
 	m_state.gyro = {};
 }
@@ -893,17 +898,12 @@ void GameController::ToggleGyroEmulation(int id) {
 	if (id != HOST_INPUT_CONTROLLER_ID && id != m_active_id) {
 		return;
 	}
-	// Pads with a real gyroscope report it directly.
-	if (m_active_id != HOST_INPUT_CONTROLLER_ID) {
-		auto* pad = SDL_GetGamepadFromID(static_cast<SDL_JoystickID>(m_active_id));
-		if (pad != nullptr && SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO)) {
-			return;
-		}
-	}
-
-	m_gyro_emulation = !m_gyro_emulation;
-	m_emulated_time  = 0;
-	m_state.time     = LibKernel::KernelGetProcessTime();
+	// Tilt replaces a physical gyro too, so a pad whose gyro needs a costly or unavailable mode
+	// can still be steered; no SDL query runs under the pad-state lock.
+	m_gyro_emulation     = !m_gyro_emulation;
+	m_emulated_time      = 0;
+	m_motion_report_time = 0;
+	m_state.time         = LibKernel::KernelGetProcessTime();
 	if (m_gyro_emulation) {
 		m_emulated_stick = {m_state.axes[static_cast<int>(Axis::RightX)],
 		                    m_state.axes[static_cast<int>(Axis::RightY)]};
@@ -911,12 +911,16 @@ void GameController::ToggleGyroEmulation(int id) {
 		m_state.axes[static_cast<int>(Axis::RightY)] = 128;
 		UpdateEmulatedTilt();
 	} else {
-		m_state.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
-		m_state.accel       = {0.0f, 1.0f, 0.0f};
-		m_state.gyro        = {};
+		// Hand back a neutral pose; the physical source restarts integration from its next
+		// sample instead of spanning the time spent in tilt mode.
+		m_state.orientation                          = {0.0f, 0.0f, 0.0f, 1.0f};
+		m_state.accel                                = {0.0f, 1.0f, 0.0f};
+		m_state.gyro                                 = {};
+		m_gyro_time                                  = 0;
+		m_up_reference_valid                         = false;
 		m_state.axes[static_cast<int>(Axis::RightX)] = m_emulated_stick[0];
 		m_state.axes[static_cast<int>(Axis::RightY)] = m_emulated_stick[1];
-		AddState();
+		AddState(true);
 	}
 	LOGF("Emulated gyro tilt: %s\n", m_gyro_emulation ? "enabled" : "disabled");
 }
