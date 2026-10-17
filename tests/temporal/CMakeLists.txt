@@ -54,4 +54,11 @@ if(KYTY_FSR3_SDK_ROOT)
     target_link_libraries(FsrBackendGuardTests PRIVATE kyty_fsr3_compile_check)
     add_test(NAME FsrBackendGuards COMMAND FsrBackendGuardTests)
     set_tests_properties(FsrBackendGuards PROPERTIES TIMEOUT 30)
+    add_executable(FsrPresentationSdkTests "${KYTY_ROOT}/tests/FsrPresentationSdkTests.cpp")
+    target_include_directories(FsrPresentationSdkTests PRIVATE
+        "${KYTY_ROOT}/src" "${KYTY_ROOT}/3rdparty/Vulkan-Headers/include"
+        "${KYTY_FSR3_SDK_ROOT}/ffx-api/include")
+    target_link_libraries(FsrPresentationSdkTests PRIVATE kyty_fsr3_compile_check)
+    add_test(NAME FsrPresentationSdk COMMAND FsrPresentationSdkTests)
+    set_tests_properties(FsrPresentationSdk PROPERTIES TIMEOUT 30)
 endif()

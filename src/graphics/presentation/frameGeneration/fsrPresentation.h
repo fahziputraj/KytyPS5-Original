@@ -2,6 +2,8 @@
 
 #include "graphics/presentation/frameGeneration/fsr3Backend.h"
 
+struct ffxFunctions;
+
 namespace Libs::Graphics::FrameGeneration {
 
 using QueueSubmitCallback = VkResult (*)(uint32_t, const VkSubmitInfo*, VkFence);
@@ -16,6 +18,12 @@ public:
 	bool Initialize(VkDevice device, VkPhysicalDevice physical, PFN_vkGetDeviceProcAddr get_proc,
 	                uint32_t width, uint32_t height, VkFormat format, bool upscale, bool generate,
 	                std::string& error);
+	// Initialize with an already loaded FidelityFX function table instead of the bundled
+	// library, with the same validation. Tests use it with stub functions and fake handles.
+	bool InitializeWithFunctions(const ffxFunctions& functions, VkDevice device,
+	                             VkPhysicalDevice physical, PFN_vkGetDeviceProcAddr get_proc,
+	                             uint32_t width, uint32_t height, VkFormat format, bool upscale,
+	                             bool generate, std::string& error);
 	bool CreateSwapchain(const VkSwapchainCreateInfoKHR& info, VkQueue game, VkQueue present,
 	                     VkQueue acquire, VkQueue compute, uint32_t family,
 	                     QueueSubmitCallback submit, VkSwapchainKHR& swapchain, std::string& error);
@@ -32,6 +40,10 @@ public:
 	void Shutdown();
 
 private:
+	bool CreateContexts(const ffxFunctions& functions, VkDevice device, VkPhysicalDevice physical,
+	                    PFN_vkGetDeviceProcAddr get_proc, uint32_t width, uint32_t height,
+	                    VkFormat format, bool upscale, bool generate, std::string& error);
+
 	struct Impl;
 	std::unique_ptr<Impl> m;
 };

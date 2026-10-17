@@ -705,6 +705,13 @@ if(WIN32 AND KYTY_FSR3_SDK_ROOT)
 	target_link_libraries(kyty_fsr3_backend PUBLIC Vulkan::Headers)
 	add_executable(fsr3_vulkan_probe EXCLUDE_FROM_ALL "${KYTY_TESTS_DIR}/Fsr3VulkanProbe.cpp")
 	target_link_libraries(fsr3_vulkan_probe kyty_fsr3_backend)
+	# Recording order, failure handling and the reset-ID ring against stub SDK functions.
+	add_executable(fsr_presentation_sdk_tests EXCLUDE_FROM_ALL
+		"${KYTY_TESTS_DIR}/FsrPresentationSdkTests.cpp")
+	target_include_directories(fsr_presentation_sdk_tests PRIVATE
+		"${KYTY_FSR3_SDK_ROOT}/ffx-api/include")
+	target_link_libraries(fsr_presentation_sdk_tests kyty_fsr3_backend)
+	add_test(NAME fsr_presentation_sdk COMMAND fsr_presentation_sdk_tests)
 endif()
 
 add_executable(temporal_camera_tests EXCLUDE_FROM_ALL "${KYTY_TESTS_DIR}/TemporalCameraTests.cpp")

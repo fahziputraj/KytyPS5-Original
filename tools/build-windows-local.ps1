@@ -55,7 +55,7 @@ Invoke-KytyPgoSource -Repository $taskRepo -Action {
     # Windows PowerShell 5 creates a new local variable for += in this scope.
     # Copy the caller's array before appending the optional probe target.
     [string[]]$taskBuildTargets = @($Targets)
-    if ($Fsr3Probe) { $taskBuildTargets += 'fsr3_vulkan_probe' }
+    if ($Fsr3Probe) { $taskBuildTargets += @('fsr3_vulkan_probe', 'fsr_presentation_sdk_tests') }
     if ($DlssPrototype) { $taskBuildTargets += @('dlss_ngx_tests', 'dlss_ngx_link_check') }
     & $taskCmake --build $taskBuild --target @taskBuildTargets --parallel $Jobs
     if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }

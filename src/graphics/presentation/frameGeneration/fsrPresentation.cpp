@@ -34,6 +34,18 @@ bool Check(ffxReturnCode_t result, const char* operation, std::string& error) {
 	error = std::string(operation) + " failed (" + std::to_string(result) + ")";
 	return false;
 }
+bool ValidDevice(VkDevice device, VkPhysicalDevice physical, PFN_vkGetDeviceProcAddr get_proc,
+                 uint32_t width, uint32_t height, VkFormat format, std::string& error) {
+	if (!device || !physical || !get_proc || width == 0 || height == 0 || width > 16384 ||
+	    height > 16384 ||
+	    (format != VK_FORMAT_R8G8B8A8_UNORM && format != VK_FORMAT_B8G8R8A8_UNORM) ||
+	    !get_proc(device, "vkGetBufferMemoryRequirements2KHR") ||
+	    !get_proc(device, "vkDeviceWaitIdle")) {
+		error = "FSR requires an SDR swapchain and the enabled Vulkan SDK features";
+		return false;
+	}
+	return true;
+}
 } // namespace
 
 struct FsrPresentation::Impl {
@@ -82,14 +94,7 @@ bool FsrPresentation::Initialize(VkDevice device, VkPhysicalDevice physical,
                                  PFN_vkGetDeviceProcAddr get_proc, uint32_t width, uint32_t height,
                                  VkFormat format, bool upscale, bool generate, std::string& error) {
 	Shutdown();
-	if (!device || !physical || !get_proc || width == 0 || height == 0 || width > 16384 ||
-	    height > 16384 ||
-	    (format != VK_FORMAT_R8G8B8A8_UNORM && format != VK_FORMAT_B8G8R8A8_UNORM) ||
-	    !get_proc(device, "vkGetBufferMemoryRequirements2KHR") ||
-	    !get_proc(device, "vkDeviceWaitIdle")) {
-		error = "FSR requires an SDR swapchain and the enabled Vulkan SDK features";
-		return false;
-	}
+	if (!ValidDevice(device, physical, get_proc, width, height, format, error)) return false;
 	std::array<wchar_t, 32768> executable {};
 	const auto                 length =
 	    GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()));
@@ -106,7 +111,28 @@ bool FsrPresentation::Initialize(VkDevice device, VkPhysicalDevice physical,
 		error = "The bundled FidelityFX Vulkan library is missing or cannot load";
 		return false;
 	}
-	ffxLoadFunctions(&m->api, m->library);
+	ffxFunctions functions {};
+	ffxLoadFunctions(&functions, m->library);
+	return CreateContexts(functions, device, physical, get_proc, width, height, format, upscale,
+	                      generate, error);
+}
+
+bool FsrPresentation::InitializeWithFunctions(const ffxFunctions& functions, VkDevice device,
+                                              VkPhysicalDevice physical,
+                                              PFN_vkGetDeviceProcAddr get_proc, uint32_t width,
+                                              uint32_t height, VkFormat format, bool upscale,
+                                              bool generate, std::string& error) {
+	Shutdown();
+	if (!ValidDevice(device, physical, get_proc, width, height, format, error)) return false;
+	return CreateContexts(functions, device, physical, get_proc, width, height, format, upscale,
+	                      generate, error);
+}
+
+bool FsrPresentation::CreateContexts(const ffxFunctions& functions, VkDevice device,
+                                     VkPhysicalDevice physical, PFN_vkGetDeviceProcAddr get_proc,
+                                     uint32_t width, uint32_t height, VkFormat format,
+                                     bool upscale, bool generate, std::string& error) {
+	m->api = functions;
 	if (!m->api.CreateContext || !m->api.DestroyContext || !m->api.Configure || !m->api.Dispatch ||
 	    !m->api.Query) {
 		error = "Incomplete FidelityFX Vulkan API";
@@ -154,7 +180,7 @@ bool FsrPresentation::CreateSwapchain(const VkSwapchainCreateInfoKHR& info, VkQu
                                       VkQueue present, VkQueue acquire, VkQueue compute,
                                       uint32_t family, QueueSubmitCallback submit,
                                       VkSwapchainKHR& swapchain, std::string& error) {
-	if (!m->library || !game || !present || !acquire || !compute) return false;
+	if (!m->api.CreateContext || !game || !present || !acquire || !compute) return false;
 	ffxCreateContextDescFrameGenerationSwapChainVK create {};
 	create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FGSWAPCHAIN_VK;
 	ffxCreateContextDescFrameGenerationSwapChainModeVK mode {};

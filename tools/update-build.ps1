@@ -54,6 +54,7 @@ if (!$SkipBuild) {
 }
 $env:PATH = "$(Join-Path $taskBuild 'launcher');$($taskTools.QtRoot)\bin;$env:PATH"
 $taskTestPattern = '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|controller_settings|temporal_camera|temporal_input|cpu_placement.*|dlss_backend'
+if ($Fsr3Probe) { $taskTestPattern += '|fsr_presentation_sdk' }
 if ($DlssPrototype) { $taskTestPattern += '|dlss_ngx_mapping|dlss_ngx_link_no_gpu' }
 $taskTestPattern += ')$'
 & "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R $taskTestPattern
@@ -193,7 +194,7 @@ $taskManifest = [ordered]@{
     built_at = [DateTimeOffset]::Now.ToString('o')
     emulator_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'kyty_emulator.exe') -Algorithm SHA256).Hash
     launcher_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'launcher.exe') -Algorithm SHA256).Hash
-    tests = 'Controller motion/history, presentation timing/configuration, typed simulation profiles, launcher persistence/inheritance, temporal camera/input guards, CPU placement including hybrid and recorder modes; DLSS CPU contracts and optional NGX mapping/link checks; runtime installer preflight/rollback/package/preservation fixtures; Astro shortcut title/version/executable guards'
+    tests = 'Controller motion/history, presentation timing/configuration, typed simulation profiles, launcher persistence/inheritance, temporal camera/input guards, CPU placement including hybrid and recorder modes; DLSS CPU contracts and optional NGX mapping/link checks; runtime installer preflight/rollback/package/preservation fixtures; Astro shortcut title/version/executable guards; FSR presentation recording/failure/reset-ring checks against stub SDK functions when FSR is bundled'
     global_controls = 'Independent or fixed presentation, FPS limit, CPU scheduling; simulation pace requires a validated engine profile'
     fsr3 = $taskFsrInfo
     dlss = $taskDlssInfo
