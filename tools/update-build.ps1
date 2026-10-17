@@ -61,7 +61,7 @@ if (!$SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw 'Build failed; installed binaries were not updated.' }
 }
 $env:PATH = "$(Join-Path $taskBuild 'launcher');$($taskTools.QtRoot)\bin;$env:PATH"
-$taskTestPattern = '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|launcher_console_ui|controller_settings|host_input|pad_haptics|temporal_camera|temporal_input|cpu_placement.*|dlss_backend'
+$taskTestPattern = '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|controller_settings|host_input|pad_haptics|temporal_camera|temporal_input|cpu_placement.*|dlss_backend'
 if ($Fsr3Probe) { $taskTestPattern += '|fsr_presentation_sdk' }
 if ($DlssPrototype) { $taskTestPattern += '|dlss_ngx_mapping|dlss_ngx_link_no_gpu' }
 $taskTestPattern += ')$'

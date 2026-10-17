@@ -11,9 +11,5 @@
  </qresource>
  <qresource prefix="/styles">
   <file alias="launcher.qss">styles/launcher.qss</file>
-  <file alias="console.qss">styles/console.qss</file>
- </qresource>
- <qresource prefix="/fonts">
-  <file alias="DMSans.ttf">fonts/DMSans.ttf</file>
  </qresource>
 </RCC>
