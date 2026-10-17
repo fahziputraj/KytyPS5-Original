@@ -5,9 +5,12 @@ param(
     [ValidateSet('Accurate','Performance')][string]$Graphics = 'Performance',
     [ValidateSet('30','Original','Adaptive')][string]$Clock = '30',
     [ValidateRange(640,7680)][int]$Width = 1920,
-    [ValidateRange(480,4320)][int]$Height = 1080
+    [ValidateRange(480,4320)][int]$Height = 1080,
+    [ValidatePattern('^(active|off|[0-9a-f]{32})$')][string]$MotionSource = 'active',
+    [ValidateRange(0,1000)][int]$MotionRate = 250
 )
 $ErrorActionPreference = 'Stop'
+if ($MotionRate -gt 0 -and $MotionRate -lt 60) { throw 'MotionRate must be 0 (raw) or 60-1000 Hz.' }
 Set-Location -LiteralPath $PSScriptRoot
 $taskPresetPath = Join-Path $PSScriptRoot 'u59-preset.json'
 if (!(Test-Path -LiteralPath $taskPresetPath)) { throw 'u59-preset.json is missing.' }
@@ -43,6 +46,7 @@ $taskAccurate = $Graphics -eq 'Accurate'
 $taskArgs = @('--game', $taskGame, '--redzone', '--amd-cpu', '--gpu', '0',
     '--screen-width', [string]$Width, '--screen-height', [string]$Height, '--present-mode', 'Fifo',
     '--vblank-frequency', '60', '--gpu-occlusion', $(if ($taskAccurate) { 'on' } else { 'off' }), '--tessellation',
+    '--controller-motion', $MotionSource, '--controller-motion-rate', [string]$MotionRate,
     '--presentation-clock', $(if ($Timing -eq 'Variable') { 'independent' } else { 'fixed' }), '--presentation-fps', [string]$Fps,
     '--shader-log-direction', 'Silent', '--shader-validation', 'false',
     '--vulkan-validation', 'false', '--readback-linear-images', $taskAccurate.ToString().ToLowerInvariant(),

@@ -3,10 +3,13 @@ param(
     [ValidateSet('Fixed30','Adaptive','Original')][string]$Mode = 'Fixed30',
     [ValidateSet('on','off','background')][string]$CpuMode = 'on',
     [ValidateRange(-1,15)][int]$Gpu = -1,
+    [ValidatePattern('^(active|off|[0-9a-f]{32})$')][string]$MotionSource = 'active',
+    [ValidateRange(0,1000)][int]$MotionRate = 250,
     [switch]$LogOutput,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
+if ($MotionRate -gt 0 -and $MotionRate -lt 60) { throw 'MotionRate must be 0 (raw) or 60-1000 Hz.' }
 if (!$GamePath) {
     if ($DryRun) { throw '-GamePath is required for -DryRun.' }
     $GamePath = Read-Host 'Folder containing your ASTRO BOT eboot.bin'
@@ -51,6 +54,7 @@ $taskEnvironment['KYTY_DEFER_PROTECTS'] = '0'
 $taskArgs = @('--game', $taskGame, '--redzone', '--amd-cpu',
     '--screen-width', '1920', '--screen-height', '1080', '--present-mode', 'Fifo',
     '--vblank-frequency', '60', '--gpu-occlusion', 'off', '--tessellation',
+    '--controller-motion', $MotionSource, '--controller-motion-rate', [string]$MotionRate,
     '--presentation-clock', 'independent', '--presentation-fps', [string]$taskFps,
     '--shader-log-direction', 'Silent', '--shader-validation', 'false', '--vulkan-validation', 'false',
     '--readback-linear-images', 'false', '--sync-raw-image-buffers', 'false',

@@ -26,6 +26,8 @@ void Load(const ConfigOptions& cfg) {
 	EXIT_IF(cfg.user_name.empty() || cfg.user_name.size() > MAX_USER_NAME_LENGTH);
 	EXIT_IF(!IsConfiguredUserIdValid(cfg.user_id));
 	EXIT_IF(cfg.controller_speaker_volume > 100 || cfg.controller_vibration_intensity > 100);
+	EXIT_IF(!IsControllerMotionSourceValid(cfg.controller_motion_source) ||
+	        !IsControllerMotionRateValid(cfg.controller_motion_rate));
 	EXIT_IF(cfg.audio_master_volume > MAX_AUDIO_VOLUME || cfg.audio_main_volume > MAX_AUDIO_VOLUME ||
 	        cfg.audio_music_volume > MAX_AUDIO_VOLUME ||
 	        cfg.audio_pad_speaker_main_volume > MAX_AUDIO_VOLUME ||
@@ -64,6 +66,14 @@ uint32_t GetControllerSpeakerVolume() {
 
 uint32_t GetControllerVibrationIntensity() {
 	return g_config->controller_vibration_intensity;
+}
+
+const std::string& GetControllerMotionSource() {
+	return g_config->controller_motion_source;
+}
+
+uint32_t GetControllerMotionRate() {
+	return g_config->controller_motion_rate;
 }
 
 uint32_t GetAudioMasterVolume() {

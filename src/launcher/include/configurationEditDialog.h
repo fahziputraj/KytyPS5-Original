@@ -47,6 +47,7 @@ private:
 protected:
 	void Init(const Configuration& info);
 	void InitGameDirectories();
+	void DetectMotionControllers();
 	void AddGameDirectoryItem(const QString& dir);
 
 	void moveEvent(QMoveEvent* event) override;

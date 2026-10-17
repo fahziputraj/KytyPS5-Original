@@ -512,6 +512,38 @@ To use your own sound, replace the emulator's assets/sounds/trophy-unlock.wav wi
      <property name="title"><string>Controller</string></property>
      <layout class="QFormLayout" name="controllerLayout">
       <property name="fieldGrowthPolicy"><enum>QFormLayout::AllNonFixedFieldsGrow</enum></property>
+      <item row="3" column="0">
+       <widget class="QLabel" name="label_controller_motion">
+        <property name="text"><string>Motion source:</string></property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <layout class="QHBoxLayout" name="controllerMotionLayout">
+        <item><widget class="QComboBox" name="comboBox_controller_motion">
+         <property name="toolTip"><string>Use native SDL motion from the active gamepad, or select a separate physical motion controller while buttons come from a virtual Xbox pad. XInput alone has no gyro data.</string></property>
+        </widget></item>
+        <item><widget class="QPushButton" name="button_controller_motion_refresh">
+         <property name="text"><string>Detect</string></property>
+         <property name="toolTip"><string>Detect connected controllers and their exposed sensor capabilities.</string></property>
+        </widget></item>
+       </layout>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="label_controller_motion_rate">
+        <property name="text"><string>Motion history:</string></property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QComboBox" name="comboBox_controller_motion_rate">
+        <property name="toolTip"><string>Limit queued motion reports to reduce guest input-processing work. Every gyro sample still contributes to orientation. Buttons and sticks are not rate limited. Raw preserves the sensor report rate.</string></property>
+       </widget>
+      </item>
+      <item row="5" column="0" colspan="2">
+       <widget class="QLabel" name="label_controller_motion_status">
+        <property name="text"><string>Press Detect to inspect controller sensors.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
       <item row="0" column="0">
        <widget class="QLabel" name="label_controller_color">
         <property name="text"><string>DualSense lightbar:</string></property>

@@ -264,6 +264,8 @@ static QStringList CreateEmulatorArgs(const Configuration& info) {
 	}
 	args << "--controller-volume" << QString::number(info.controller.speaker_volume);
 	args << "--controller-vibration" << QString::number(info.controller.vibration_intensity);
+	args << "--controller-motion" << info.controller.motion_source;
+	args << "--controller-motion-rate" << QString::number(info.controller.motion_rate);
 	args << "--audio-master-volume" << QString::number(info.audio_mix.master);
 	args << "--audio-main-volume" << QString::number(info.audio_mix.main);
 	args << "--audio-music-volume" << QString::number(info.audio_mix.music);

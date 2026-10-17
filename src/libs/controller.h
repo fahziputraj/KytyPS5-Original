@@ -73,6 +73,8 @@ void SetAxis(int id, Axis axis, int value);
 void SetRightStick(int id, int x, int y);
 void SetTouchPad(int id, int finger, bool down, float x, float y);
 void SetSensor(int id, Sensor sensor, const float* data, uint64_t time_us);
+// Called by the SDL event thread; hardware commands never hold the guest pad-state lock.
+void UpdateHostMotion();
 void ResetInputState();
 int  GetActiveControllerId();
 

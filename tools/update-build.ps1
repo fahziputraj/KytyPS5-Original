@@ -16,10 +16,11 @@ if (!$SkipBuild) {
     & powershell @taskBuildOptions
     if ($LASTEXITCODE -ne 0) { throw 'Build failed; installed binaries were not updated.' }
 }
-& "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|cpu_placement.*)$'
+& "$taskCmakeBin\ctest.exe" --test-dir $taskBuild --output-on-failure -R '^(presentation_timing|simulation_clock_profile|presentation_config|launcher_presentation_config|controller_settings|cpu_placement.*)$'
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed; installed binaries were not updated.' }
 & "$taskCmakeBin\cmake.exe" --install $taskBuild --prefix $taskStage
 if ($LASTEXITCODE -ne 0) { throw 'Staging the runnable build failed.' }
+Copy-Item -LiteralPath (Join-Path $taskBuild 'controller_probe.exe') -Destination $taskStage -Force
 # Keep the complete Qt runtime beside the newly built launcher.
 $taskLauncherRuntime = Join-Path $taskBuild 'launcher'
 foreach ($taskName in @('Qt6Core.dll','Qt6Gui.dll','Qt6Network.dll','Qt6Widgets.dll','Qt6Svg.dll','icuuc.dll')) {
@@ -79,7 +80,7 @@ $taskManifest = [ordered]@{
     built_at = [DateTimeOffset]::Now.ToString('o')
     emulator_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'kyty_emulator.exe') -Algorithm SHA256).Hash
     launcher_sha256 = (Get-FileHash -LiteralPath (Join-Path $taskStage 'launcher.exe') -Algorithm SHA256).Hash
-    tests = '8 tests: presentation timing/configuration, typed simulation profiles, launcher persistence/inheritance, CPU placement including hybrid and recorder modes'
+    tests = '9 tests: controller motion/history, presentation timing/configuration, typed simulation profiles, launcher persistence/inheritance, CPU placement including hybrid and recorder modes'
     global_controls = 'Independent or fixed presentation, FPS limit, CPU scheduling; simulation pace requires a validated engine profile'
     fsr3 = $taskFsrInfo
     astro_clock = '01.007.000 guarded 30 FPS default; optional experimental adaptive 30-60 FPS clock'

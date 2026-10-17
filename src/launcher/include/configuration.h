@@ -48,11 +48,15 @@ struct ControllerSettings {
 	QString color;
 	int     speaker_volume      = 50;
 	int     vibration_intensity = 100;
+	QString  motion_source       = QStringLiteral("active");
+	uint32_t motion_rate         = Config::DEFAULT_CONTROLLER_MOTION_RATE;
 
 	void WriteSettings(QSettings* s) const {
 		s->setValue("controller_color", color);
 		s->setValue("controller_speaker_volume", speaker_volume);
 		s->setValue("controller_vibration_intensity", vibration_intensity);
+		s->setValue("controller_motion_source", motion_source);
+		s->setValue("controller_motion_rate", motion_rate);
 	}
 
 	void ReadSettings(QSettings* s) {
@@ -65,6 +69,16 @@ struct ControllerSettings {
 		};
 		speaker_volume      = read_percent("controller_speaker_volume", 50);
 		vibration_intensity = read_percent("controller_vibration_intensity", 100);
+		motion_source = s->value("controller_motion_source", QStringLiteral("active")).toString();
+		if (!Config::IsControllerMotionSourceValid(motion_source.toStdString())) {
+			motion_source = QStringLiteral("active");
+		}
+		bool rate_ok = false;
+		motion_rate  = s->value("controller_motion_rate", Config::DEFAULT_CONTROLLER_MOTION_RATE)
+		                   .toUInt(&rate_ok);
+		if (!rate_ok || !Config::IsControllerMotionRateValid(motion_rate)) {
+			motion_rate = Config::DEFAULT_CONTROLLER_MOTION_RATE;
+		}
 	}
 };
 

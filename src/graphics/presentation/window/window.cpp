@@ -798,6 +798,7 @@ void WindowContext::Run() {
 			title_time   = now;
 			title_frames = frames;
 		}
+		Controller::UpdateHostMotion();
 		const auto wait_ms = static_cast<int>(title_interval_ms - (now - title_time));
 		if (!HostInputWaitEvent(&loop.event, wait_ms)) {
 			continue;

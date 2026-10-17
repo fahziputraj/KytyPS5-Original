@@ -166,6 +166,8 @@ ConfigurationEditDialog::ConfigurationEditDialog(Configuration& info, QWidget* p
 	setMinimumWidth(width());
 	InitGameDirectories();
 	m_ui->controller_group->setVisible(false);
+	connect(m_ui->button_controller_motion_refresh, &QPushButton::clicked, this,
+	        &ConfigurationEditDialog::DetectMotionControllers);
 	m_ui->settings_button->setVisible(false);
 
 	connect(m_ui->ok_button, &QPushButton::clicked, this, &ConfigurationEditDialog::save);
@@ -251,6 +253,28 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 	UpdateControllerColorButton(m_ui->button_controller_color, info.controller.color);
 	m_ui->slider_controller_vibration->setValue(info.controller.vibration_intensity);
 	m_ui->slider_controller_volume->setValue(info.controller.speaker_volume);
+	m_ui->comboBox_controller_motion->clear();
+	m_ui->comboBox_controller_motion->addItem(tr("Active gamepad (native SDL)"),
+	                                          QStringLiteral("active"));
+	m_ui->comboBox_controller_motion->addItem(tr("Off (compare CPU usage)"), QStringLiteral("off"));
+	if (m_ui->comboBox_controller_motion->findData(info.controller.motion_source) < 0) {
+		m_ui->comboBox_controller_motion->addItem(
+		    tr("Saved device: %1").arg(info.controller.motion_source),
+		    info.controller.motion_source);
+	}
+	m_ui->comboBox_controller_motion->setCurrentIndex(
+	    m_ui->comboBox_controller_motion->findData(info.controller.motion_source));
+	m_ui->comboBox_controller_motion_rate->clear();
+	for (const auto rate: {125u, 250u, 500u, 1000u, 0u}) {
+		m_ui->comboBox_controller_motion_rate->addItem(
+		    rate == 0 ? tr("Raw sensor reports") : tr("%1 Hz").arg(rate), rate);
+	}
+	if (m_ui->comboBox_controller_motion_rate->findData(info.controller.motion_rate) < 0) {
+		m_ui->comboBox_controller_motion_rate->addItem(tr("%1 Hz").arg(info.controller.motion_rate),
+		                                               info.controller.motion_rate);
+	}
+	m_ui->comboBox_controller_motion_rate->setCurrentIndex(
+	    m_ui->comboBox_controller_motion_rate->findData(info.controller.motion_rate));
 	for (const auto& mix: AudioMixSliders(*m_ui)) {
 		mix.slider->setValue(info.audio_mix.*mix.field);
 	}
@@ -460,6 +484,52 @@ QStringList ConfigurationEditDialog::GetGameDirectories() const {
 	return dirs;
 }
 
+void ConfigurationEditDialog::DetectMotionControllers() {
+	if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+		m_ui->label_controller_motion_status->setText(
+		    tr("Controller detection failed: %1").arg(QString::fromUtf8(SDL_GetError())));
+		return;
+	}
+	const auto saved = m_ui->comboBox_controller_motion->currentData().toString();
+	m_ui->comboBox_controller_motion->clear();
+	m_ui->comboBox_controller_motion->addItem(tr("Active gamepad (native SDL)"),
+	                                          QStringLiteral("active"));
+	m_ui->comboBox_controller_motion->addItem(tr("Off (compare CPU usage)"), QStringLiteral("off"));
+	QStringList status;
+	int         count = 0;
+	auto*       ids   = SDL_GetGamepads(&count);
+	for (int i = 0; i < count; ++i) {
+		auto* pad = SDL_OpenGamepad(ids[i]);
+		if (!pad) {
+			continue;
+		}
+		const auto name  = QString::fromUtf8(SDL_GetGamepadName(pad));
+		const bool gyro  = SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO);
+		const bool accel = SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL);
+		status << tr("%1: gyro %2, accelerometer %3")
+		              .arg(name, gyro ? tr("yes") : tr("no"), accel ? tr("yes") : tr("no"));
+		if (gyro || accel) {
+			char guid[33] {};
+			SDL_GUIDToString(SDL_GetGamepadGUIDForID(ids[i]), guid, sizeof(guid));
+			m_ui->comboBox_controller_motion->addItem(name, QString::fromLatin1(guid));
+		}
+		SDL_CloseGamepad(pad);
+	}
+	SDL_free(ids);
+	SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+	if (m_ui->comboBox_controller_motion->findData(saved) < 0) {
+		m_ui->comboBox_controller_motion->addItem(tr("Saved device (not detected)"), saved);
+	}
+	m_ui->comboBox_controller_motion->setCurrentIndex(
+	    m_ui->comboBox_controller_motion->findData(saved));
+	if (status.empty()) {
+		status << tr("No supported gamepad detected.");
+	}
+	status << tr("Xbox/XInput mode needs a separately exposed motion device. A mode setting cannot "
+	             "create missing gyro data.");
+	m_ui->label_controller_motion_status->setText(status.join(QLatin1Char('\n')));
+}
+
 void ConfigurationEditDialog::AddGameDirectoryItem(const QString& dir) {
 	const auto normalized = NormalizeGameDirectory(dir);
 	const auto key        = GameDirectoryKey(normalized);
@@ -496,6 +566,8 @@ static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, boo
 		info.controller.color = ui.button_controller_color->property("controllerColor").toString();
 		info.controller.vibration_intensity = ui.slider_controller_vibration->value();
 		info.controller.speaker_volume      = ui.slider_controller_volume->value();
+		info.controller.motion_source = ui.comboBox_controller_motion->currentData().toString();
+		info.controller.motion_rate   = ui.comboBox_controller_motion_rate->currentData().toUInt();
 		for (const auto& mix: AudioMixSliders(ui)) {
 			info.audio_mix.*mix.field = mix.slider->value();
 		}

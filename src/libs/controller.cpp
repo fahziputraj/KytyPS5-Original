@@ -117,7 +117,8 @@ public:
 	void RightStick(int id, int x, int y);
 	void TouchPad(int id, int finger, bool down, float x, float y);
 	void Motion(int id, Sensor sensor, const float* data, uint64_t time_us);
-	void SetMotionSensorState(bool enable);
+	void  UpdateHostMotion();
+	bool  SetMotionSensorState(bool enable);
 	void ResetOrientation();
 	void ResetInputState();
 	void ReleaseHostPads();
@@ -136,7 +137,8 @@ private:
 	static constexpr uint32_t STATES_MAX = 64;
 
 	void CheckActive();
-	void AddState();
+	void AddState(bool motion = false);
+	void AddMotionState(uint64_t time_us);
 	// Apply cached output without changing its game-requested lifetime; caller holds m_mutex.
 	void ApplyVibration();
 	bool SendTriggerEffect(const PadTriggerEffectParam& param);
@@ -147,13 +149,23 @@ private:
 	bool             m_connected       = false;
 	int              m_connected_count = 0;
 	bool             m_motion_enabled  = true;
+	struct MotionDevice {
+		int                  id;
+		std::array<char, 33> guid {};
+		std::array<bool, 2>  sensors {};
+		std::array<bool, 2>  enabled {};
+	};
+	std::vector<MotionDevice> m_motion_devices;
+	std::atomic<bool>         m_motion_dirty {false};
+	int                       m_motion_source_id   = -1;
+	uint64_t                  m_motion_report_time = 0;
+	bool                      m_last_state_motion  = false;
 	uint64_t         m_gyro_time       = 0;
 	// Accelerometer gravity direction in the reset frame.
 	std::array<float, 3> m_up_reference {0.0f, 1.0f, 0.0f};
 	bool                 m_up_reference_valid = false;
 	ControllerState  m_state;
 	ControllerState  m_states[STATES_MAX];
-	bool             m_obtained[STATES_MAX] {};
 	uint32_t         m_states_num    = 0;
 	uint32_t         m_first_state   = 0;
 	uint8_t          m_next_touch_id = 1;
@@ -439,31 +451,96 @@ static bool HostInputOnly() {
 }
 
 void GameController::Connect(int id) {
-	Common::LockGuard lock(m_mutex);
 	if (HostInputOnly() && id != HOST_INPUT_CONTROLLER_ID) { return; }
+	MotionDevice device {id};
+	// SDL sensor setup can send USB/Bluetooth commands. Keep it out of the pad read lock.
+	if (id != HOST_INPUT_CONTROLLER_ID) {
+		if (auto* pad = SDL_GetGamepadFromID(static_cast<SDL_JoystickID>(id)); pad != nullptr) {
+			SDL_GUIDToString(SDL_GetGamepadGUIDForID(static_cast<SDL_JoystickID>(id)),
+			                 device.guid.data(), static_cast<int>(device.guid.size()));
+			device.sensors = {SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL),
+			                  SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO)};
+			if (const auto& color = Config::GetControllerColor()) {
+				(void)SDL_SetGamepadLED(pad, (*color)[0], (*color)[1], (*color)[2]);
+			}
+		}
+	}
+	Common::LockGuard lock(m_mutex);
 
 	if (std::find(m_connected_ids.begin(), m_connected_ids.end(), id) != m_connected_ids.end()) {
 		return;
 	}
 
 	m_connected_ids.push_back(id);
-
 	if (id != HOST_INPUT_CONTROLLER_ID) {
-		if (auto* pad = SDL_GetGamepadFromID(static_cast<SDL_JoystickID>(id));
-		    pad != nullptr) {
-			if (const auto& color = Config::GetControllerColor()) {
-				(void)SDL_SetGamepadLED(pad, (*color)[0], (*color)[1], (*color)[2]);
+		m_motion_devices.push_back(device);
+	}
+	m_motion_dirty.store(true, std::memory_order_release);
+	CheckActive();
+}
+
+void GameController::UpdateHostMotion() {
+	if (!m_motion_dirty.exchange(false, std::memory_order_acquire)) {
+		return;
+	}
+	struct Command {
+		int            id;
+		SDL_SensorType sensor;
+		bool           enabled;
+	};
+	std::vector<Command> commands;
+	{
+		Common::LockGuard lock(m_mutex);
+		const auto&       source   = Config::GetControllerMotionSource();
+		int               selected = -1;
+		int               matches  = 0;
+		for (const auto& device: m_motion_devices) {
+			if (!(device.sensors[0] || device.sensors[1])) {
+				continue;
 			}
-			for (auto sensor: {SDL_SENSOR_ACCEL, SDL_SENSOR_GYRO}) {
-				if (SDL_GamepadHasSensor(pad, sensor) &&
-				    !SDL_SetGamepadSensorEnabled(pad, sensor, true)) {
-					LOGF("\t enabling controller sensor failed: %s\n", SDL_GetError());
+			if ((source == "active" && device.id == m_active_id) || source == device.guid.data()) {
+				selected = device.id;
+				++matches;
+			}
+		}
+		// Do not silently attach a different player's motion when identical devices share a GUID.
+		if (matches != 1 || source == "off") {
+			selected = -1;
+		}
+		if (selected != m_motion_source_id) {
+			m_motion_source_id   = selected;
+			m_gyro_time          = 0;
+			m_motion_report_time = 0;
+			m_up_reference_valid = false;
+			m_state.accel        = {0.0f, 1.0f, 0.0f};
+			m_state.gyro         = {};
+			m_state.orientation  = {0.0f, 0.0f, 0.0f, 1.0f};
+			for (uint32_t i = 0; i < m_states_num; ++i) {
+				auto& pending       = m_states[(m_first_state + i) % STATES_MAX];
+				pending.accel       = m_state.accel;
+				pending.gyro        = m_state.gyro;
+				pending.orientation = m_state.orientation;
+			}
+		}
+		for (auto& device: m_motion_devices) {
+			for (size_t i = 0; i < device.sensors.size(); ++i) {
+				const bool enabled = m_motion_enabled && device.id == selected;
+				if (device.sensors[i] && enabled != device.enabled[i]) {
+					commands.push_back(
+					    {device.id, i == 0 ? SDL_SENSOR_ACCEL : SDL_SENSOR_GYRO, enabled});
+					device.enabled[i] = enabled;
 				}
 			}
 		}
 	}
-
-	CheckActive();
+	for (const auto& command: commands) {
+		if (auto* pad = SDL_GetGamepadFromID(static_cast<SDL_JoystickID>(command.id));
+		    pad != nullptr) {
+			if (!SDL_SetGamepadSensorEnabled(pad, command.sensor, command.enabled)) {
+				LOGF("Controller sensor setup failed for pad %d: %s\n", command.id, SDL_GetError());
+			}
+		}
+	}
 }
 
 void GameController::Disconnect(int id) {
@@ -475,6 +552,8 @@ void GameController::Disconnect(int id) {
 	EXIT_IF(it == m_connected_ids.end());
 
 	m_connected_ids.erase(it);
+	std::erase_if(m_motion_devices, [id](const auto& device) { return device.id == id; });
+	m_motion_dirty.store(true, std::memory_order_release);
 
 	CheckActive();
 }
@@ -504,6 +583,8 @@ void GameController::CheckActive() {
 	m_connected     = new_connected;
 	m_state         = {};
 	m_gyro_time     = 0;
+	m_motion_report_time = 0;
+	m_last_state_motion  = false;
 	m_up_reference_valid = false;
 	m_states_num    = 0;
 	m_first_state   = 0;
@@ -514,7 +595,7 @@ void GameController::CheckActive() {
 	m_state_effect       = {};
 }
 
-void GameController::AddState() {
+void GameController::AddState(bool motion) {
 	if (m_states_num >= STATES_MAX) {
 		m_states_num  = STATES_MAX - 1;
 		m_first_state = (m_first_state + 1) % STATES_MAX;
@@ -522,8 +603,23 @@ void GameController::AddState() {
 
 	const auto index  = (m_first_state + m_states_num) % STATES_MAX;
 	m_states[index]   = m_state;
-	m_obtained[index] = false;
 	m_states_num++;
+	m_last_state_motion = motion;
+}
+
+void GameController::AddMotionState(uint64_t time_us) {
+	const auto rate     = Config::GetControllerMotionRate();
+	const auto interval = rate != 0 ? (1000000u + rate - 1) / rate : 0;
+	if (m_motion_report_time != 0 && time_us >= m_motion_report_time &&
+	    (time_us == m_motion_report_time || time_us - m_motion_report_time < interval)) {
+		// Keep the latest fully integrated pose, without replacing intervening button edges.
+		if (m_states_num != 0 && m_last_state_motion) {
+			m_states[(m_first_state + m_states_num - 1) % STATES_MAX] = m_state;
+		}
+		return;
+	}
+	m_motion_report_time = time_us;
+	AddState(true);
 }
 
 void GameController::Button(int id, uint32_t button, bool down) {
@@ -625,8 +721,12 @@ float Length(const Vec3& v) {
 } // namespace
 
 void GameController::Motion(int id, Sensor sensor, const float* data, uint64_t time_us) {
+	if (data == nullptr || !std::isfinite(data[0]) || !std::isfinite(data[1]) ||
+	    !std::isfinite(data[2])) {
+		return;
+	}
 	Common::LockGuard lock(m_mutex);
-	if (id != m_active_id || !m_motion_enabled) {
+	if (id != m_motion_source_id || !m_motion_enabled) {
 		return;
 	}
 
@@ -644,6 +744,9 @@ void GameController::Motion(int id, Sensor sensor, const float* data, uint64_t t
 			m_up_reference_valid = true;
 		}
 	} else {
+		if (m_gyro_time != 0 && time_us <= m_gyro_time) {
+			return;
+		}
 		std::copy_n(data, 3, m_state.gyro.begin());
 		// Mahony tilt correction; heading is unobservable and reported gyro values stay raw.
 		auto        rate      = m_state.gyro;
@@ -686,26 +789,31 @@ void GameController::Motion(int id, Sensor sensor, const float* data, uint64_t t
 		m_gyro_time = time_us;
 	}
 	m_state.time = LibKernel::KernelGetProcessTime();
-	AddState();
+	AddMotionState(time_us);
 }
 
-void GameController::SetMotionSensorState(bool enable) {
+bool GameController::SetMotionSensorState(bool enable) {
 	Common::LockGuard lock(m_mutex);
 	if (m_motion_enabled != enable) {
 		m_motion_enabled     = enable;
 		m_gyro_time          = 0;
+		m_motion_report_time = 0;
+		const bool wake      = !m_motion_dirty.exchange(true, std::memory_order_release);
 		m_state.accel        = {0.0f, 1.0f, 0.0f};
 		m_state.gyro         = {};
 		m_up_reference_valid = false;
 		m_state.time         = LibKernel::KernelGetProcessTime();
 		AddState();
+		return wake;
 	}
+	return false;
 }
 
 void GameController::ResetOrientation() {
 	Common::LockGuard lock(m_mutex);
 	m_state.orientation  = {0.0f, 0.0f, 0.0f, 1.0f};
 	m_gyro_time          = 0;
+	m_motion_report_time = 0;
 	m_up_reference_valid = false;
 	m_state.time        = LibKernel::KernelGetProcessTime();
 	AddState();
@@ -758,6 +866,8 @@ void GameController::ReleaseHostPads() {
 	}
 
 	m_connected_ids.clear();
+	m_motion_devices.clear();
+	m_motion_source_id = -1;
 	CheckActive();
 }
 
@@ -934,25 +1044,22 @@ int GameController::ReadStates(ControllerState* states, int states_num, bool* fl
 	*flag  = m_connected;
 	*count = m_connected_count;
 
-	int ret_num = 0;
-
-	if (m_connected) {
-		if (m_states_num != 0) {
-			for (uint32_t i = 0; i < m_states_num; i++) {
-				if (ret_num >= states_num) {
-					break;
-				}
-				auto index = (m_first_state + i) % STATES_MAX;
-				if (!m_obtained[index]) {
-					m_obtained[index] = true;
-
-					states[ret_num++] = m_states[index];
-				}
-			}
-		}
+	if (!m_connected) {
+		return 0;
 	}
-
-	return ret_num;
+	const auto count_to_read = std::min(m_states_num, static_cast<uint32_t>(states_num));
+	for (uint32_t i = 0; i < count_to_read; ++i) {
+		states[i] = m_states[(m_first_state + i) % STATES_MAX];
+	}
+	m_first_state = (m_first_state + count_to_read) % STATES_MAX;
+	m_states_num -= count_to_read;
+	if (m_states_num == 0) {
+		m_last_state_motion = false;
+	}
+	if (count_to_read == 0) {
+		states[0] = m_state;
+	}
+	return static_cast<int>(count_to_read);
 }
 
 void Connect(int id) {
@@ -981,6 +1088,12 @@ void SetTouchPad(int id, int finger, bool down, float x, float y) {
 
 void SetSensor(int id, Sensor sensor, const float* data, uint64_t time_us) {
 	g_controller->Motion(id, sensor, data, time_us);
+}
+
+void UpdateHostMotion() {
+	if (g_controller != nullptr) {
+		g_controller->UpdateHostMotion();
+	}
 }
 
 void ResetInputState() {
@@ -1053,7 +1166,12 @@ int KYTY_SYSV_ABI PadSetMotionSensorState(int handle, bool enable) {
 	}
 
 	LOGF("\t enable = %s\n", (enable ? "true" : "false"));
-	g_controller->SetMotionSensorState(enable);
+	const bool changed = g_controller->SetMotionSensorState(enable);
+	if (changed && SDL_WasInit(SDL_INIT_EVENTS) != 0) {
+		SDL_Event event {};
+		event.type = SDL_EVENT_USER;
+		(void)SDL_PushEvent(&event);
+	}
 
 	return OK;
 }
@@ -1166,9 +1284,6 @@ int KYTY_SYSV_ABI PadRead(int handle, PadData* data, int num) {
 	int ret_num = g_controller->ReadStates(states, num, &connected, &connected_count);
 
 	if (!connected || ret_num == 0) {
-		if (connected) {
-			g_controller->ReadState(&states[0], &connected, &connected_count);
-		}
 		ret_num = 1;
 	}
 

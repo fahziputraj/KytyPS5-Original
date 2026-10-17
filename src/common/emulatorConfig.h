@@ -2,9 +2,10 @@
 #define KYTY_COMMON_EMULATOR_CONFIG_H_
 
 #include "common/common.h"
+#include "common/controllerMotionConfig.h"
 
-#include <cstddef>
 #include <array>
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -55,6 +56,8 @@ struct ConfigOptions {
 	std::optional<ControllerColor> controller_color;
 	uint32_t               controller_speaker_volume      = 50;
 	uint32_t               controller_vibration_intensity = 100;
+	std::string                    controller_motion_source       = "active";
+	uint32_t                       controller_motion_rate         = DEFAULT_CONTROLLER_MOTION_RATE;
 	// Host mix levels in percent (0-200, 100 = unity); see libs/audioMix.h.
 	uint32_t               audio_master_volume            = 100;
 	uint32_t               audio_main_volume              = 100;
@@ -110,6 +113,8 @@ const std::string& GetAudioInputDevice();
 const std::optional<ControllerColor>& GetControllerColor();
 uint32_t GetControllerSpeakerVolume();
 uint32_t GetControllerVibrationIntensity();
+const std::string&                    GetControllerMotionSource();
+uint32_t                              GetControllerMotionRate();
 uint32_t GetAudioMasterVolume();
 uint32_t GetAudioMainVolume();
 uint32_t GetAudioMusicVolume();

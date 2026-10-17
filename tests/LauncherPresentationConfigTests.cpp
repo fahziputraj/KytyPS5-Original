@@ -22,12 +22,15 @@ int main(int argc, char** argv) {
 	                             error),
 	      "import global/per-game options");
 	config.screen_resolution = Configuration::Resolution::R2560X1440;
+	config.controller.motion_source = QStringLiteral("01000000000000000000000000000000");
+	config.controller.motion_rate   = 125;
 	QTemporaryDir directory;
 	check(directory.isValid(), "create isolated settings directory");
 	const auto path = directory.filePath("Kyty.ini");
 	{
 		QSettings settings(path, QSettings::IniFormat);
 		config.WriteSettings(&settings);
+		config.controller.WriteSettings(&settings);
 		settings.sync();
 		check(settings.status() == QSettings::NoError, "save options");
 	}
@@ -35,12 +38,16 @@ int main(int argc, char** argv) {
 	{
 		QSettings settings(path, QSettings::IniFormat);
 		restored.ReadSettings(&settings);
+		restored.controller.ReadSettings(&settings);
 	}
 	check(restored.presentation_clock == "independent" && restored.presentation_fps == 45 &&
 	          restored.cpu_hybrid == "on",
 	      "all new options survive an INI round trip");
 	check(restored.screen_resolution == Configuration::Resolution::R2560X1440,
 	      "unrelated settings survive");
+	check(restored.controller.motion_source == config.controller.motion_source &&
+	          restored.controller.motion_rate == 125,
+	      "global motion selection survives an INI round trip");
 	Configuration game;
 	game.CopyEmulatorSettingsFrom(restored);
 	check(game.presentation_clock == "independent" && game.presentation_fps == 45 &&
@@ -56,6 +63,14 @@ int main(int argc, char** argv) {
 	Configuration legacy;
 	QSettings     empty(directory.filePath("old.ini"), QSettings::IniFormat);
 	legacy.ReadSettings(&empty);
+	legacy.controller.ReadSettings(&empty);
+	check(legacy.controller.motion_source == "active" && legacy.controller.motion_rate == 250,
+	      "old settings retain native active-pad motion with bounded history");
+	empty.setValue("controller_motion_source", "invalid");
+	empty.setValue("controller_motion_rate", -1);
+	legacy.controller.ReadSettings(&empty);
+	check(legacy.controller.motion_source == "active" && legacy.controller.motion_rate == 250,
+	      "invalid motion configuration falls back safely");
 	check(legacy.presentation_clock == "preset" && legacy.presentation_fps == -1 &&
 	          legacy.cpu_hybrid == "preset",
 	      "older INI files retain preset inheritance");

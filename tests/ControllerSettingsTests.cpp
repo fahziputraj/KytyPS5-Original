@@ -1,9 +1,11 @@
 // Exercise the production controller with deterministic host output and time.
 #include <SDL3/SDL.h>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -23,6 +25,15 @@ std::vector<Rumble>                rumble;
 std::vector<Rumble>                haptics;
 std::vector<std::array<Uint8, 32>> effects;
 bool                               haptics_handles_rumble = false;
+std::array<bool, 3>                motion_capable {};
+struct SensorCommand {
+	int            id;
+	SDL_SensorType type;
+	bool           enabled;
+};
+std::vector<SensorCommand> sensor_commands;
+bool                       read_during_sensor_command = false;
+void                       ReadWhileConfiguringSensor();
 } // namespace
 
 namespace Fake {
@@ -50,11 +61,20 @@ bool SendGamepadEffect(SDL_Gamepad*, const void* data, int size) {
 bool SetGamepadLED(SDL_Gamepad*, Uint8, Uint8, Uint8) {
 	return true;
 }
-bool GamepadHasSensor(SDL_Gamepad*, SDL_SensorType) {
-	return false;
+bool GamepadHasSensor(SDL_Gamepad* pad, SDL_SensorType) {
+	return motion_capable[reinterpret_cast<uintptr_t>(pad)];
 }
-bool SetGamepadSensorEnabled(SDL_Gamepad*, SDL_SensorType, bool) {
+bool SetGamepadSensorEnabled(SDL_Gamepad* pad, SDL_SensorType type, bool enabled) {
+	if (read_during_sensor_command) {
+		ReadWhileConfiguringSensor();
+	}
+	sensor_commands.push_back({static_cast<int>(reinterpret_cast<uintptr_t>(pad)), type, enabled});
 	return true;
+}
+SDL_GUID GetGamepadGUIDForID(SDL_JoystickID id) {
+	SDL_GUID guid {};
+	guid.data[0] = static_cast<uint8_t>(id);
+	return guid;
 }
 void CloseGamepad(SDL_Gamepad*) {}
 void Delay(Uint32) {}
@@ -63,6 +83,7 @@ void Delay(Uint32) {}
 #define SDL_GetTicks                Fake::GetTicks
 #define SDL_GetGamepadFromID        Fake::GetGamepadFromID
 #define SDL_GetGamepadType          Fake::GetGamepadType
+#define SDL_GetGamepadGUIDForID     Fake::GetGamepadGUIDForID
 #define SDL_RumbleGamepad           Fake::RumbleGamepad
 #define SDL_SendGamepadEffect       Fake::SendGamepadEffect
 #define SDL_SetGamepadLED           Fake::SetGamepadLED
@@ -74,6 +95,7 @@ void Delay(Uint32) {}
 #undef SDL_GetTicks
 #undef SDL_GetGamepadFromID
 #undef SDL_GetGamepadType
+#undef SDL_GetGamepadGUIDForID
 #undef SDL_RumbleGamepad
 #undef SDL_SendGamepadEffect
 #undef SDL_SetGamepadLED
@@ -105,12 +127,18 @@ double GetTimeMs() {
 namespace {
 using namespace Libs::Controller;
 
+void ReadWhileConfiguringSensor() {
+	PadData data {};
+	Check(PadReadState(1, &data) == 0, "sensor setup blocked a reentrant pad read");
+}
+
 struct Controller {
 	Controller() {
 		now                    = 1000;
 		haptics_handles_rumble = false;
 		Initialize();
 		Connect(1);
+		UpdateHostMotion();
 		Check(GetSettingScale(Setting::SpeakerVolume) ==
 		              Config::GetControllerSpeakerVolume() / 50.0f &&
 		          GetSettingScale(Setting::VibrationIntensity) ==
@@ -429,6 +457,135 @@ void TestTriggerEffectState() {
 	GetTriggerEffectState(state);
 	Check(state[0] == 7, "muting trigger effects changed the reported state");
 }
+
+void TestUnreadHistoryAndButtonEdges() {
+	Controller controller;
+	PadData    data[64] {};
+	for (int i = 0; i < 100; ++i) {
+		SetAxis(1, Axis::LeftX, i);
+		Check(PadRead(1, data, 1) == 1 && data[0].left_stick_x == i,
+		      "consuming history retained an old axis value");
+	}
+	// Partial reads must retain unread entries, including across the ring boundary.
+	for (int i = 0; i < 70; ++i) {
+		SetAxis(1, Axis::LeftX, i);
+	}
+	Check(PadRead(1, data, 3) == 3 && data[0].left_stick_x == 6 && data[2].left_stick_x == 8,
+	      "overflow did not retain the most recent 64 reports");
+	Check(PadRead(1, data, 64) == 61 && data[0].left_stick_x == 9 && data[60].left_stick_x == 69,
+	      "partial read lost unread reports or changed their order");
+	Check(PadRead(1, data, 64) == 1 && data[0].left_stick_x == 69,
+	      "empty history did not return the latest stable snapshot");
+}
+
+void TestMotionIntegrationAndHistory() {
+	motion_capable[1] = true;
+	for (uint32_t rate: {60u, 200u, 1000u}) {
+		Controller     controller;
+		const float    gravity[] {0.0f, SDL_STANDARD_GRAVITY, 0.0f};
+		const float    rotation[] {0.0f, 1.57079632679f, 0.0f};
+		const uint64_t start = 1000000;
+		SetSensor(1, Sensor::Accel, gravity, start);
+		SetSensor(1, Sensor::Gyro, rotation, start);
+		PadData data[64] {};
+		(void)PadRead(1, data, 64);
+		int reports = 0;
+		for (uint32_t i = 1; i <= rate; ++i) {
+			const auto timestamp = start + (1000000ULL * i / rate);
+			SetSensor(1, Sensor::Gyro, rotation, timestamp);
+			SetSensor(1, Sensor::Accel, gravity, timestamp);
+			// Read the queue directly to distinguish new samples from PadRead's stable fallback.
+			ControllerState states[64];
+			bool            connected = false;
+			int             count     = 0;
+			reports += g_controller->ReadStates(states, 64, &connected, &count);
+		}
+		Check(PadReadState(1, data) == 0 &&
+		          std::abs(data[0].orientation_y - 0.70710678f) < 0.001f &&
+		          std::abs(data[0].orientation_w - 0.70710678f) < 0.001f,
+		      "motion history limiting changed one second of integrated rotation");
+		Check(reports <= 250 && std::abs(data[0].angular_velocity_y - rotation[1]) < 0.001f &&
+		          std::abs(data[0].acceleration_y - 1.0f) < 0.001f,
+		      "motion reports exceeded the limit or changed gyro/acceleration units");
+		SetButton(1, PAD_BUTTON_CROSS, true);
+		SetSensor(1, Sensor::Gyro, rotation, start + 1001000);
+		SetButton(1, PAD_BUTTON_CROSS, false);
+		Check(PadRead(1, data, 64) >= 2 && (data[0].buttons & PAD_BUTTON_CROSS) != 0 &&
+		          (data[1].buttons & PAD_BUTTON_CROSS) == 0,
+		      "motion coalescing erased a quick button press/release");
+		const float invalid[] {std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f};
+		SetSensor(1, Sensor::Gyro, invalid, start + 2000000);
+		Check(PadReadState(1, data) == 0 && std::isfinite(data[0].orientation_w),
+		      "invalid motion data corrupted orientation");
+		Check(PadResetOrientation(1) == 0, "motion recenter failed");
+		Check(PadReadState(1, data) == 0 && data[0].orientation_y == 0 &&
+		          data[0].orientation_w == 1,
+		      "motion recenter retained integrated rotation");
+	}
+	motion_capable[1] = false;
+}
+
+void TestMotionSourceAndHardwareLifetime() {
+	motion_capable[1] = true;
+	motion_capable[2] = true;
+	sensor_commands.clear();
+	read_during_sensor_command = true;
+	{
+		Controller controller;
+		Check(sensor_commands.size() == 2 && sensor_commands[0].id == 1 &&
+		          sensor_commands[0].enabled,
+		      "active pad sensors were not enabled");
+		Connect(2);
+		UpdateHostMotion();
+		Check(sensor_commands.size() == 2, "inactive gamepad sensors were enabled");
+		Check(PadSetMotionSensorState(1, false) == 0, "motion disable failed");
+		UpdateHostMotion();
+		Check(sensor_commands.size() == 4 && !sensor_commands.back().enabled,
+		      "guest motion disable left hardware sensors running");
+		Check(PadSetMotionSensorState(1, true) == 0, "motion enable failed");
+		UpdateHostMotion();
+		Check(sensor_commands.size() == 6 && sensor_commands.back().enabled,
+		      "guest motion re-enable did not restart the selected hardware");
+	}
+	Config::ConfigOptions options;
+	options.controller_motion_source = "02000000000000000000000000000000";
+	Config::Load(options);
+	motion_capable[1] = false; // XInput buttons; a separate physical SDL device provides motion.
+	{
+		Controller controller;
+		Connect(2);
+		UpdateHostMotion();
+		const float rotation[] {0.0f, 2.0f, 0.0f};
+		SetSensor(2, Sensor::Gyro, rotation, 1000000);
+		SetButton(1, PAD_BUTTON_CROSS, true);
+		PadData data {};
+		Check(PadReadState(1, &data) == 0 && data.angular_velocity_y == 2.0f &&
+		          (data.buttons & PAD_BUTTON_CROSS) != 0 && GetActiveControllerId() == 1,
+		      "a separate motion source displaced XInput buttons or lost gyro");
+		Disconnect(2);
+		UpdateHostMotion();
+		Check(PadReadState(1, &data) == 0 && data.angular_velocity_y == 0.0f,
+		      "disconnected motion source retained stale gyro");
+		PadData    history[64] {};
+		const auto size = PadRead(1, history, 64);
+		for (int i = 0; i < size; ++i) {
+			Check(history[i].angular_velocity_y == 0.0f,
+			      "queued history replayed disconnected-source motion");
+		}
+	}
+	options.controller_motion_source = "off";
+	Config::Load(options);
+	sensor_commands.clear();
+	{
+		Controller controller;
+		Connect(2);
+		UpdateHostMotion();
+		Check(sensor_commands.empty(), "motion-off configuration enabled sensors");
+	}
+	motion_capable             = {};
+	read_during_sensor_command = false;
+	Config::Load(Config::ConfigOptions {});
+}
 } // namespace
 
 int main() {
@@ -440,6 +597,9 @@ int main() {
 	TestMaskedTriggersAndValidation();
 	TestIndependentOutputsAndPadSwitch();
 	TestTriggerEffectState();
+	TestUnreadHistoryAndButtonEdges();
+	TestMotionIntegrationAndHistory();
+	TestMotionSourceAndHardwareLifetime();
 	Config::Shutdown();
 	return 0;
 }
