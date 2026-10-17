@@ -306,7 +306,9 @@ void TestAffinityAndModes() {
 
 #if defined(_WIN32)
 
-volatile uint64_t g_sink = 0;
+// Keeps each workload's result observable. Every thread writes only its own sink, so the
+// concurrent workers, CP, recorder and benchmark threads neither race nor share a cache line.
+thread_local volatile uint64_t t_sink = 0;
 
 // CPU Sets are a soft scheduler assignment. Verify the installed selection and
 // allow a bounded scheduling transition before measuring steady-state residency.
@@ -349,7 +351,7 @@ uint64_t RunAndRecord(uint32_t ms, const Common::ThreadRole* role = nullptr) {
 			Common::SamplePlacement(*role);
 		}
 	}
-	g_sink = acc;
+	t_sink = acc;
 	return seen;
 }
 
@@ -781,7 +783,7 @@ int BenchChild(double seconds, uint32_t guests) {
 				}
 				SleepMicro(timer, 50 + rng() % 451);
 			}
-			g_sink = acc + static_cast<uint64_t>(a[7]);
+			t_sink = acc + static_cast<uint64_t>(a[7]);
 			guest_steps.fetch_add(steps);
 			CloseHandle(timer);
 		});
@@ -831,7 +833,7 @@ int BenchChild(double seconds, uint32_t guests) {
 			}
 			(void)SetEvent(done);
 		}
-		g_sink = acc;
+		t_sink = acc;
 	});
 	std::thread producer([&] {
 		(void)SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST); // service threads
