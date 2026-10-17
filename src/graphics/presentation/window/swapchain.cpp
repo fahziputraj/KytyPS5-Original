@@ -18,6 +18,7 @@
 #include "graphics/presentation/window/windowInternal.h"
 #if KYTY_ENABLE_FSR3
 #include "graphics/presentation/frameGeneration/fsrPresentation.h"
+#include "graphics/presentation/frameGeneration/temporalCounters.h"
 #endif
 
 #include <algorithm>
@@ -359,7 +360,8 @@ private:
 	uint64_t                                          m_fsr_guest_id = UINT64_MAX;
 	std::chrono::steady_clock::time_point             m_fsr_previous {};
 	bool                                              m_fsr_output_valid = false;
-	uint64_t m_fsr_actual_sample = 0, m_fsr_application_sample = 0;
+	FrameGeneration::TemporalCounters                 m_fsr_counters;
+	uint64_t                                          m_fsr_actual_sample = 0;
 #endif
 };
 
@@ -703,7 +705,8 @@ void Swapchain::Destroy() {
 	m_fsr_guest_id      = UINT64_MAX;
 	m_fsr_previous      = {};
 	m_fsr_output_valid  = false;
-	m_fsr_actual_sample = m_fsr_application_sample = 0;
+	m_fsr_actual_sample = 0;
+	m_fsr_counters.Reset();
 #endif
 
 	m_handle        = nullptr;
@@ -1128,6 +1131,7 @@ Presenter::Frame* Swapchain::ProcessTemporal(CommandBuffer& command, Presenter::
 #if KYTY_ENABLE_FSR3
 	if (!m_fsr) return source;
 	if (source == nullptr || !source->guides.valid) {
+		++m_fsr_counters.missing_guides;
 		m_fsr->Suspend();
 		m_fsr_output_valid = false;
 		m_fsr_previous     = {};
@@ -1136,6 +1140,7 @@ Presenter::Frame* Swapchain::ProcessTemporal(CommandBuffer& command, Presenter::
 	const auto& guides = source->guides;
 	// Paused/overlay redraws do not supply new simulation frames.
 	if (m_fsr_guest_id == guides.id) {
+		++m_fsr_counters.redraws;
 		m_fsr->Suspend();
 		m_fsr_previous = {};
 		return m_fsr_output_valid ? &m_fsr_output : source;
@@ -1149,6 +1154,7 @@ Presenter::Frame* Swapchain::ProcessTemporal(CommandBuffer& command, Presenter::
 	m_fsr_guest_id = guides.id;
 	if (elapsed <= 0 || elapsed > 100 || guides.depth.extent.width > m_extent.width ||
 	    guides.depth.extent.height > m_extent.height) {
+		++m_fsr_counters.timing_rejected;
 		m_fsr->Suspend();
 		m_fsr_output_valid = false;
 		return source;
@@ -1187,6 +1193,10 @@ Presenter::Frame* Swapchain::ProcessTemporal(CommandBuffer& command, Presenter::
 	m_fsr_output_valid = m_fsr->Record(
 	    vk_command, frame,
 	    Config::FsrFrameGenerationEnabled() && !overlays && !m_window.loop.paused.load(), error);
+	++m_fsr_counters.new_frames;
+	m_fsr_counters.upscaled += m_fsr_output_valid ? 1 : 0;
+	m_fsr_counters.generation_prepared += m_fsr->LastFramePrepared() ? 1 : 0;
+	m_fsr_counters.record_failed += error.empty() ? 0 : 1;
 	if (!error.empty()) {
 		static uint32_t messages = 0;
 		if (messages++ < 8) Log::WriteToConsoleAndLog("FSR frame rejected: " + error + "\n");
@@ -1389,17 +1399,20 @@ Swapchain::Status Swapchain::Present() {
 		if (m_fsr && m_fsr->OwnsSwapchain()) {
 			result = static_cast<vk::Result>(
 			    m_fsr->Present(m_window.graphic_ctx.queue, static_cast<VkPresentInfoKHR>(present)));
-			if (++m_fsr_application_sample >= 120) {
-				const auto actual = m_fsr->PresentCount(m_handle);
-				Log::WriteToConsoleAndLog(
-				    fmt::format("FSR presentation: {} real submissions, {} actual presents\n",
-				                m_fsr_application_sample, actual - m_fsr_actual_sample));
-				m_fsr_application_sample = 0;
-				m_fsr_actual_sample      = actual;
-			}
 		} else
 #endif
 			result = m_window.graphic_ctx.queue.presentKHR(&present);
+#if KYTY_ENABLE_FSR3
+		// Separate counts for every FSR outcome; reset with the swapchain in Destroy().
+		if (m_fsr && ++m_fsr_counters.presents >= 120) {
+			const bool replacement      = m_fsr->OwnsSwapchain();
+			const auto actual           = replacement ? m_fsr->PresentCount(m_handle) : 0;
+			m_fsr_counters.sdk_presents = actual - m_fsr_actual_sample;
+			Log::WriteToConsoleAndLog(m_fsr_counters.Format(replacement) + "\n");
+			m_fsr_counters.Reset();
+			m_fsr_actual_sample = actual;
+		}
+#endif
 	}
 	switch (result) {
 		case vk::Result::eSuccess: break;

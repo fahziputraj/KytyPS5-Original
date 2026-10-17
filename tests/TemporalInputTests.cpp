@@ -1,4 +1,5 @@
 #include "graphics/presentation/frameGeneration/fsrFrameValidation.h"
+#include "graphics/presentation/frameGeneration/temporalCounters.h"
 
 #include <cstdio>
 #include <limits>
@@ -174,5 +175,35 @@ int main() {
 	check(!history.IsDuplicate(0) && history.NeedsReset(0, 1920, 1080, false, true),
 	      "new context discards previous history");
 	std::printf("Temporal input tests: %d checks, %d failures\n", checks, failures);
+	// Presentation counters keep every outcome separate and never invent generated frames.
+	TemporalCounters counters;
+	counters.presents            = 120;
+	counters.new_frames          = 100;
+	counters.redraws             = 15;
+	counters.missing_guides      = 3;
+	counters.timing_rejected     = 1;
+	counters.record_failed       = 1;
+	counters.upscaled            = 99;
+	counters.generation_prepared = 98;
+	counters.sdk_presents        = 230;
+	const auto replacement       = counters.Format(true);
+	check(replacement.find("120 presents (100 new guest frames, 15 redraws, 3 without guides, 1 "
+	                       "timing-rejected, 1 failed); recorded SR 99, FG prepare 98") !=
+	              std::string::npos &&
+	          replacement.find("SDK swapchain presented 230 (about 110 generated)") !=
+	              std::string::npos,
+	      "counters report each outcome and generated presents from the SDK count");
+	check(counters.Format(false).find("native swapchain, no generated presents") !=
+	              std::string::npos &&
+	          counters.Format(false).find("SDK swapchain") == std::string::npos,
+	      "without the replacement swapchain no generated presents are claimed");
+	counters.sdk_presents = 60;
+	check(counters.Format(true).find("none generated") != std::string::npos &&
+	          counters.Format(true).find("about") == std::string::npos,
+	      "fewer SDK presents than application presents never underflow into generated frames");
+	counters.Reset();
+	check(counters.presents == 0 && counters.new_frames == 0 && counters.sdk_presents == 0 &&
+	          counters.generation_prepared == 0,
+	      "reset clears every counter");
 	return failures != 0;
 }

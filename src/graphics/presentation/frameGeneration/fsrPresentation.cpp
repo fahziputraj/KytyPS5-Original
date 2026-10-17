@@ -59,6 +59,7 @@ struct FsrPresentation::Impl {
 	PFN_vkDeviceWaitIdle                        wait_idle = nullptr;
 	uint32_t                                    width = 0, height = 0;
 	uint64_t                                    sequence = 0;
+	bool                                        prepared = false;
 	TemporalHistory                             history;
 	std::array<std::atomic<uint64_t>, 8>        reset_ids {};
 
@@ -234,6 +235,7 @@ uint64_t FsrPresentation::PresentCount(VkSwapchainKHR swapchain) const {
 bool FsrPresentation::Record(VkCommandBuffer command, const FsrFrame& frame, bool generate,
                              std::string& error) {
 	error.clear();
+	m->prepared = false;
 	if ((!m->generation && !m->upscale) || !command) {
 		error = "FSR context or command buffer is unavailable";
 		Suspend();
@@ -314,9 +316,14 @@ bool FsrPresentation::Record(VkCommandBuffer command, const FsrFrame& frame, boo
 			Suspend();
 			return false;
 		}
+		m->prepared = true;
 	}
 	m->history.Commit(frame.id, frame.depth.width, frame.depth.height, generate && m->swapchain);
 	return upscaled;
+}
+
+bool FsrPresentation::LastFramePrepared() const {
+	return m->prepared;
 }
 
 void FsrPresentation::Suspend() {

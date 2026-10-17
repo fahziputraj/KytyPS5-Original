@@ -16,6 +16,14 @@ and performance remain **unverified**. The launcher passes FSR options only for
 the certified PPSA21564 01.007.000 `eboot.bin` with the AMD library installed;
 other titles start with the native swapchain and original presentation.
 
+While FSR is active the emulator logs one `FSR window:` line per 120 presents:
+new guest frames, redraws, frames without guides, timing rejections and failures
+separately, then recorded SR outputs and FG prepares, and, with AMD's replacement
+swapchain, the SDK's own present count and its excess over application presents
+("about N generated"). Recorded means placed in a submitted command buffer, not
+proven to have executed or reached the screen; none of these counts is a
+guest-frame rate or game pace. Counters reset when the swapchain is recreated.
+
 Development without an RTX GPU can use the standalone CPU tests and optional
 SDK compilation described in [FSR and DLSS development](FSR-DLSS-DEVELOPMENT.md).
 That path does not provide the missing in-game runtime validation.

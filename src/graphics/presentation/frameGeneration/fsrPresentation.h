@@ -35,6 +35,8 @@ public:
 	// Outputs are GENERAL before recording. Guides/color are COMPUTE_READ.
 	// Returns true only when the optional upscaler wrote frame.output.
 	bool Record(VkCommandBuffer command, const FsrFrame& frame, bool generate, std::string& error);
+	// Whether the last Record also recorded a frame-generation prepare.
+	bool LastFramePrepared() const;
 	void Suspend();
 	void WaitForPresents();
 	void Shutdown();

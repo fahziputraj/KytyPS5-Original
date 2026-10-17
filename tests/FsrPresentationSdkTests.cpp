@@ -231,6 +231,7 @@ int main() {
 	          upscale->command == command && prepare && prepare->frame == 1 &&
 	          prepare->command == command,
 	      "the first frame configures generation, then records a reset upscale and a prepare");
+	check(fsr.LastFramePrepared(), "the first frame reports its recorded prepare");
 	check(Callback(1), "the first frame's generation callback sees its reset");
 	check(!Callback(1 + 1), "a callback for another frame does not see that reset");
 
@@ -244,8 +245,9 @@ int main() {
 	g_stub.events.clear();
 	g_stub.prepare_result = FFX_API_RETURN_ERROR_RUNTIME_ERROR;
 	check(!fsr.Record(command, Frame(3), true, error) &&
-	          error.find("FSR prepare generation failed") != std::string::npos,
-	      "a failed prepare fails the frame with a diagnostic");
+	          error.find("FSR prepare generation failed") != std::string::npos &&
+	          !fsr.LastFramePrepared(),
+	      "a failed prepare fails the frame with a diagnostic and reports no prepare");
 	g_stub.prepare_result = FFX_API_RETURN_OK;
 	upscale               = Find(g_stub.events, "upscale");
 	check(upscale && upscale->command == command,
@@ -299,6 +301,14 @@ int main() {
 	check(!Callback(reset_frame),
 	      "the eighth newer frame reuses the slot: a callback delayed that long loses its reset");
 	check(Callback(reset_frame, true), "an SDK-provided reset is always passed through");
+	g_stub.events.clear();
+	check(fsr.Record(command, Frame(16), false, error) && !fsr.LastFramePrepared() &&
+	          !Find(g_stub.events, "prepare"),
+	      "a frame without generation (overlay/pause) records SR only");
+	check(fsr.Record(command, Frame(17), true, error) && fsr.LastFramePrepared(),
+	      "generation resumes on the next frame");
+	check(!fsr.Record(command, Frame(17), true, error) && !fsr.LastFramePrepared(),
+	      "a duplicate frame reports no prepare");
 
 	fsr.Shutdown();
 	check(g_stub.live_contexts == 0 && !fsr.OwnsSwapchain(), "shutdown destroys every context");
