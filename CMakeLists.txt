@@ -332,6 +332,8 @@ file(GLOB kyty_emulator_src CONFIGURE_DEPENDS
 )
 
 find_program(KYTY_GLSLANG_VALIDATOR glslangValidator REQUIRED)
+list(APPEND kyty_emulator_src "${KYTY_SOURCE_DIR}/graphics/presentation/frameGeneration/temporalFrame.cpp")
+
 set(gpu_tiler_shader_dir "${KYTY_SOURCE_DIR}/graphics/host_gpu/shaders")
 set(gpu_tiler_generated_dir "${PROJECT_BINARY_DIR}/gpu_tiler_shaders")
 set(gpu_tiler_shader_names
@@ -441,6 +443,7 @@ set(gpu_blit_shader_sources
 	"${gpu_tiler_shader_dir}/gpu_blit_color32_to_depth.frag"
 	"${gpu_tiler_shader_dir}/gpu_video_out_overlay.frag"
 	"${gpu_tiler_shader_dir}/gpu_video_out_downscale.frag"
+	"${gpu_tiler_shader_dir}/gpu_fsr_guides.comp"
 )
 foreach(shader_source IN LISTS gpu_blit_shader_sources)
 	get_filename_component(shader_name "${shader_source}" NAME_WE)
@@ -693,13 +696,18 @@ if(WIN32 AND KYTY_FSR3_SDK_ROOT)
 		message(FATAL_ERROR "Run tools/prepare-fidelityfx.py and point KYTY_FSR3_SDK_ROOT at sdk-package")
 	endif()
 	add_library(kyty_fsr3_backend STATIC EXCLUDE_FROM_ALL
-		"${KYTY_SOURCE_DIR}/graphics/presentation/frameGeneration/fsr3Backend.cpp")
+		"${KYTY_SOURCE_DIR}/graphics/presentation/frameGeneration/fsr3Backend.cpp"
+		"${KYTY_SOURCE_DIR}/graphics/presentation/frameGeneration/fsrPresentation.cpp")
 	target_include_directories(kyty_fsr3_backend PUBLIC ${KYTY_SOURCE_DIR}
 		PRIVATE "${KYTY_FSR3_SDK_ROOT}/ffx-api/include")
 	target_link_libraries(kyty_fsr3_backend PUBLIC Vulkan::Headers)
 	add_executable(fsr3_vulkan_probe EXCLUDE_FROM_ALL "${KYTY_TESTS_DIR}/Fsr3VulkanProbe.cpp")
 	target_link_libraries(fsr3_vulkan_probe kyty_fsr3_backend)
 endif()
+
+add_executable(temporal_camera_tests EXCLUDE_FROM_ALL "${KYTY_TESTS_DIR}/TemporalCameraTests.cpp")
+target_include_directories(temporal_camera_tests PRIVATE ${KYTY_SOURCE_DIR})
+add_test(NAME temporal_camera COMMAND temporal_camera_tests)
 
 add_executable(cpu_placement_tests EXCLUDE_FROM_ALL
 	"${KYTY_TESTS_DIR}/CpuPlacementTests.cpp"
@@ -2459,6 +2467,10 @@ if(WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
 endif()
 
 add_executable(kyty_emulator "${KYTY_SOURCE_DIR}/main.cpp" ${kyty_emulator_src})
+if(TARGET kyty_fsr3_backend)
+	target_link_libraries(kyty_emulator kyty_fsr3_backend)
+	target_compile_definitions(kyty_emulator PRIVATE KYTY_ENABLE_FSR3=1)
+endif()
 configure_macos_guest_address_space(kyty_emulator)
 
 option(KYTY_EMULATOR_IPO "Enable release interprocedural optimization for the emulator target" OFF)

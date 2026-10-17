@@ -10,6 +10,8 @@ QVariantMap Configuration::GameSettings() const {
 	KYTY_CFG_SET(present_mode);
 	KYTY_CFG_SET(presentation_clock);
 	KYTY_CFG_SET(presentation_fps);
+	KYTY_CFG_SET(fsr_upscale);
+	KYTY_CFG_SET(fsr_frame_generation);
 	KYTY_CFG_SET(cpu_hybrid);
 	KYTY_CFG_SET(gpu_index);
 	KYTY_CFG_SET(fullscreen_enabled);
@@ -58,6 +60,11 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 		presentation_clock = QStringLiteral("preset");
 	}
 	presentation_fps = s.value("presentation_fps", -1).toInt();
+	fsr_upscale      = s.value("fsr_upscale", QStringLiteral("off")).toString();
+	if (fsr_upscale != "native" && fsr_upscale != "quality" && fsr_upscale != "balanced" &&
+	    fsr_upscale != "performance")
+		fsr_upscale = QStringLiteral("off");
+	fsr_frame_generation = s.value("fsr_frame_generation", false).toBool();
 	if (presentation_fps < -1 || presentation_fps > 240) {
 		presentation_fps = -1;
 	}

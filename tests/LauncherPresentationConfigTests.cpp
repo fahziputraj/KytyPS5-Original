@@ -25,6 +25,8 @@ int main(int argc, char** argv) {
 	                             error),
 	      "import global/per-game options");
 	config.screen_resolution        = Configuration::Resolution::R2560X1440;
+	config.fsr_upscale              = QStringLiteral("quality");
+	config.fsr_frame_generation     = true;
 	config.controller.motion_source = QStringLiteral("01000000000000000000000000000000");
 	config.controller.motion_rate   = 125;
 	QTemporaryDir directory;
@@ -48,11 +50,15 @@ int main(int argc, char** argv) {
 	      "all new options survive an INI round trip");
 	check(restored.screen_resolution == Configuration::Resolution::R2560X1440,
 	      "unrelated settings survive");
+	check(restored.fsr_upscale == "quality" && restored.fsr_frame_generation,
+	      "FSR selections survive an INI round trip");
 	check(restored.controller.motion_source == config.controller.motion_source &&
 	          restored.controller.motion_rate == 125,
 	      "global motion selection survives an INI round trip");
 	Configuration game;
 	game.CopyEmulatorSettingsFrom(restored);
+	check(game.fsr_upscale == "quality" && game.fsr_frame_generation,
+	      "per-game settings inherit global FSR selections");
 	check(game.presentation_clock == "independent" && game.presentation_fps == 45 &&
 	          game.cpu_hybrid == "on",
 	      "game configuration inherits global timing and CPU options");
@@ -66,6 +72,8 @@ int main(int argc, char** argv) {
 	Configuration legacy;
 	QSettings     empty(directory.filePath("old.ini"), QSettings::IniFormat);
 	legacy.ReadSettings(&empty);
+	check(legacy.fsr_upscale == "off" && !legacy.fsr_frame_generation,
+	      "FSR remains opt-in for existing settings");
 	legacy.controller.ReadSettings(&empty);
 	check(legacy.controller.motion_source == "active" && legacy.controller.motion_rate == 250,
 	      "old settings retain native active-pad motion with bounded history");

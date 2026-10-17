@@ -676,11 +676,16 @@ static vk::Device VulkanCreateDevice(GraphicContext& graphics,
 	       graphics.side_queue_index != 0 ? "queue 1" : "shared with queue 0", queue_family,
 	       family_queue_count);
 
-	const std::array<float, 2> queue_priorities {1.0f, 1.0f};
+	// Queue 1 remains available for side copies. The SDK exclusively owns
+	// queues 2/3/4; its pacing thread must never race another submitter.
+	graphics.fsr_queues_reserved = Config::FsrFrameGenerationEnabled() && family_queue_count >= 5;
+	const std::array<float, 5>               queue_priorities {1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 	std::array<vk::DeviceQueueCreateInfo, 2> queue_create_infos {};
 	auto&                      queue_create_info = queue_create_infos[0];
 	queue_create_info.queueFamilyIndex = queue_family;
-	queue_create_info.queueCount       = graphics.side_queue_index != 0 ? 2u : 1u;
+	queue_create_info.queueCount       = graphics.fsr_queues_reserved     ? 5u
+	                                     : graphics.side_queue_index != 0 ? 2u
+	                                                                      : 1u;
 	queue_create_info.pQueuePriorities = queue_priorities.data();
 	// KYTY_UPLOAD_DMA: one queue of a transfer-only family (the copy engines), for UploadDma.
 	// Not under RenderDoc, whose captures of the extra queue are not needed for analysis.
@@ -1134,6 +1139,24 @@ static vk::Device VulkanCreateDevice(GraphicContext& graphics,
 	EXIT_NOT_IMPLEMENTED(supported_features2.features.dualSrcBlend != VK_TRUE);
 	EXIT_NOT_IMPLEMENTED(supported_draw_parameters.shaderDrawParameters != VK_TRUE);
 	vk::PhysicalDeviceFeatures device_features {};
+	if (Config::FsrFrameGenerationEnabled() || Config::GetFsrUpscale() != "off") {
+		vk::PhysicalDeviceVulkan11Features supported_fsr11 {};
+		vk::PhysicalDeviceFeatures2        query {};
+		query.pNext = &supported_fsr11;
+		physical_device.getFeatures2(&query);
+		features11.uniformAndStorageBuffer16BitAccess =
+		    supported_fsr11.uniformAndStorageBuffer16BitAccess;
+		features11.storagePushConstant16 = supported_fsr11.storagePushConstant16;
+		features11.storageInputOutput16  = supported_fsr11.storageInputOutput16;
+		features12.shaderFloat16         = supported_features12.shaderFloat16;
+		device_features.shaderInt16      = supported_features2.features.shaderInt16;
+		device_features.shaderStorageImageExtendedFormats =
+		    supported_features2.features.shaderStorageImageExtendedFormats;
+		graphics.fsr_supported =
+		    features12.shaderFloat16 && device_features.shaderInt16 &&
+		    device_features.shaderStorageImageExtendedFormats &&
+		    HasExtension(device_extensions, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
+	}
 	device_features.fragmentStoresAndAtomics = VK_TRUE;
 	device_features.samplerAnisotropy        = VK_TRUE;
 	device_features.robustBufferAccess       = VK_TRUE;
@@ -1254,7 +1277,13 @@ static vk::Device VulkanCreateDevice(GraphicContext& graphics,
 	                                           : static_cast<void*>(&fragment_barycentric);
 #endif
 	features13.robustImageAccess   = supported_features13.robustImageAccess;
-	features13.subgroupSizeControl = graphics.subgroup_size_control_enabled ? VK_TRUE : VK_FALSE;
+	if (graphics.fsr_supported) {
+		features13.subgroupSizeControl  = supported_features13.subgroupSizeControl;
+		features13.computeFullSubgroups = supported_features13.computeFullSubgroups;
+	}
+	if (!graphics.fsr_supported)
+		features13.subgroupSizeControl =
+		    graphics.subgroup_size_control_enabled ? VK_TRUE : VK_FALSE;
 	features13.pipelineCreationCacheControl =
 	    graphics.pipeline_creation_cache_control_enabled ? VK_TRUE : VK_FALSE;
 
@@ -1993,6 +2022,16 @@ void WindowContext::CreateVulkan() {
 		}
 	}
 
+	if (Config::FsrFrameGenerationEnabled() || Config::GetFsrUpscale() != "off") {
+		const auto available = graphic_ctx.physical_device.enumerateDeviceExtensionProperties();
+		RequireVulkanSuccess(available.result, "FSR device extension query");
+		for (const auto* extension: {VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+		                             VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME}) {
+			if (HasExtension(available.value, extension) &&
+			    !HasExtension(device_extensions, extension))
+				device_extensions.push_back(extension);
+		}
+	}
 	graphic_ctx.device = VulkanCreateDevice(graphic_ctx, device_extensions);
 	if (graphic_ctx.device == nullptr) {
 		EXIT("Could not create device");
@@ -2004,6 +2043,11 @@ void WindowContext::CreateVulkan() {
 	CommandRecorder::InstallVerifyHooks();
 	graphic_ctx.device.getQueue(graphic_ctx.queue_family, 0, &graphic_ctx.queue);
 	EXIT_IF(graphic_ctx.queue == nullptr);
+	if (graphic_ctx.fsr_queues_reserved) {
+		graphic_ctx.device.getQueue(graphic_ctx.queue_family, 2, &graphic_ctx.fsr_present_queue);
+		graphic_ctx.device.getQueue(graphic_ctx.queue_family, 3, &graphic_ctx.fsr_acquire_queue);
+		graphic_ctx.device.getQueue(graphic_ctx.queue_family, 4, &graphic_ctx.fsr_compute_queue);
+	}
 	if (graphic_ctx.side_queue_index != 0) {
 		graphic_ctx.device.getQueue(graphic_ctx.queue_family, graphic_ctx.side_queue_index,
 		                            &graphic_ctx.side_queue);

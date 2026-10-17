@@ -15,6 +15,7 @@
 #include "graphics/host_gpu/renderer/occlusion.h"
 #include "graphics/host_gpu/renderer/pipeline/descriptorHeap.h"
 #include "graphics/host_gpu/renderer/pipeline/pipelineCache.h"
+#include "graphics/presentation/frameGeneration/sceneGuides.h"
 #include "kernel/eventQueue.h"
 
 #include <atomic>
@@ -137,6 +138,13 @@ public:
 	RenderExecutor&     GetRenderExecutor() { return m_render_executor; }
 	OcclusionCounter&   GetOcclusionCounter() { return m_occlusion_counter; }
 	LodStatsCounter&    GetLodStats() { return m_lod_stats; }
+
+	// GPU recorder only, under the renderer mutex. Consumed once at a real
+	// video-out flip; never reused by a menu/loading or overlay-only refresh.
+	FrameGeneration::SceneGuides    temporal_guides {};
+	FrameGeneration::TemporalCamera temporal_camera {};
+	vk::Extent2D                    temporal_camera_extent {};
+	uint64_t                        temporal_camera_frame = UINT64_MAX;
 
 	[[nodiscard]] bool HandleFault(PageFaultAccess access, uint64_t fault_vaddr) noexcept;
 	[[nodiscard]] bool InvalidateMemory(uint64_t vaddr, uint64_t size);

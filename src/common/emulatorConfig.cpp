@@ -104,6 +104,14 @@ PresentMode GetPresentMode() {
 	return g_config->present_mode;
 }
 
+const std::string& GetFsrUpscale() {
+	return g_config->fsr_upscale;
+}
+
+bool FsrFrameGenerationEnabled() {
+	return g_config->fsr_frame_generation;
+}
+
 bool IndependentPresentationEnabled() {
 	if (g_config->independent_presentation.has_value()) {
 		return *g_config->independent_presentation;

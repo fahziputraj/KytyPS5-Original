@@ -256,6 +256,9 @@ static void ListInit(QComboBox* combo, T value) {
 }
 
 void ConfigurationEditDialog::Init(const Configuration& info) {
+	if (m_fsr_upscale)
+		m_fsr_upscale->setCurrentIndex(std::max(0, m_fsr_upscale->findData(info.fsr_upscale)));
+	if (m_fsr_generation) m_fsr_generation->setChecked(info.fsr_frame_generation);
 	m_ui->lineEdit_user_name->setMaxLength(static_cast<int>(Config::MAX_USER_NAME_LENGTH));
 	m_ui->lineEdit_user_name->setText(info.user_name);
 	m_ui->spinBox_user_id->setValue(info.user_id);
@@ -513,9 +516,26 @@ void ConfigurationEditDialog::InitPacingControls() {
 	m_clock_status->setText(tr("No validated simulation-clock profile for this title/version. "
 	                           "Frame delivery and CPU scheduling are available above."));
 	form->addRow(m_clock_status);
+	m_fsr_upscale = new QComboBox(group);
+	m_fsr_upscale->setObjectName(QStringLiteral("comboBox_fsr_upscale"));
+	m_fsr_upscale->addItem(tr("Off"), QStringLiteral("off"));
+	m_fsr_upscale->addItem(tr("Native AA (1x)"), QStringLiteral("native"));
+	m_fsr_upscale->addItem(tr("Quality (1.5x)"), QStringLiteral("quality"));
+	m_fsr_upscale->addItem(tr("Balanced (1.7x)"), QStringLiteral("balanced"));
+	m_fsr_upscale->addItem(tr("Performance (2x)"), QStringLiteral("performance"));
+	m_fsr_upscale->setCurrentIndex(std::max(0, m_fsr_upscale->findData(m_info.fsr_upscale)));
+	form->addRow(tr("FSR upscaling:"), m_fsr_upscale);
+	m_fsr_generation = new QCheckBox(tr("FSR frame generation (experimental)"), group);
+	m_fsr_generation->setObjectName(QStringLiteral("checkBox_fsr_frame_generation"));
+	m_fsr_generation->setChecked(m_info.fsr_frame_generation);
+	form->addRow(m_fsr_generation);
 	auto* fg_status =
-	    new QLabel(tr("FSR frame generation: not available in gameplay. "
-	                  "The GPU test below is offscreen and does not add game frames."),
+	    new QLabel(tr("Astro Bot 01.007 temporal adapter. Requires the bundled AMD Vulkan library. "
+	                  "Missing guides suspend FSR automatically. This compatibility mode retains "
+	                  "the game's rendering, "
+	                  "TAA and HUD; UI/transparent effects may show artifacts. It does not reduce "
+	                  "guest rendering cost. "
+	                  "Changes apply on next launch."),
 	               group);
 	fg_status->setObjectName(QStringLiteral("label_fsr_status"));
 	fg_status->setWordWrap(true);
@@ -523,6 +543,9 @@ void ConfigurationEditDialog::InitPacingControls() {
 	auto* probe = new QPushButton(tr("Run FSR3 GPU test"), group);
 	probe->setObjectName(QStringLiteral("button_fsr_gpu_test"));
 	const auto base = QCoreApplication::applicationDirPath();
+	const bool fsr_installed = QFileInfo::exists(base + "/Experiments/FSR3/amd_fidelityfx_vk.dll");
+	m_fsr_upscale->setEnabled(fsr_installed);
+	m_fsr_generation->setEnabled(fsr_installed);
 	probe->setEnabled(QFileInfo::exists(base + "/Experiments/FSR3/fsr3_vulkan_probe.exe") &&
 	                  QFileInfo::exists(base + "/Experiments/FSR3/amd_fidelityfx_vk.dll"));
 	if (!probe->isEnabled()) {
@@ -650,10 +673,10 @@ void ConfigurationEditDialog::RunFsrGpuTest() {
 		status->setText(tr("GPU test could not complete: %1").arg(process.errorString()));
 	});
 	connect(&process, &QProcess::finished, &dialog, [&](int code, QProcess::ExitStatus exit) {
-		status->setText(
-		    code == 0 && exit == QProcess::NormalExit
-		        ? tr("GPU test passed. In-game FSR frame generation is still unavailable.")
-		        : tr("GPU test failed. See the output below."));
+		status->setText(code == 0 && exit == QProcess::NormalExit
+		                    ? tr("GPU test passed. Select the in-game FSR options in settings for "
+		                         "supported games.")
+		                    : tr("GPU test failed. See the output below."));
 	});
 	process.start(base + "fsr3_vulkan_probe.exe",
 	              {base + "amd_fidelityfx_vk.dll", output.filePath("generated.ppm")});
@@ -829,6 +852,8 @@ void ConfigurationEditDialog::save() {
 		}
 	}
 	UpdateInfo(m_info, *m_ui, m_global_settings);
+	m_info.fsr_upscale          = m_fsr_upscale->currentData().toString();
+	m_info.fsr_frame_generation = m_fsr_generation->isChecked();
 
 	emit accept();
 }

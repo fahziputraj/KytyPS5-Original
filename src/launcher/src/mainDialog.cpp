@@ -283,6 +283,8 @@ static QStringList CreateEmulatorArgs(const Configuration& info) {
 	if (info.presentation_fps >= 0) {
 		args << "--presentation-fps" << QString::number(info.presentation_fps);
 	}
+	args << "--fsr-upscale" << info.fsr_upscale;
+	args << "--fsr-frame-generation" << BoolArg(info.fsr_frame_generation);
 	if (info.gpu_index >= 0) {
 		args << "--gpu" << QString::number(info.gpu_index);
 	}

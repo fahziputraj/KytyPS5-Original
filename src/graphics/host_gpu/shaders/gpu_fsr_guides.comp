@@ -1,0 +1,37 @@
+#version 450
+// Motion conversion follows the shader-certified Astro adapter in
+// iska0702/DLSSKytyPS5 (8b763bd6), gpu_dlss_astro_motion.frag.
+// See LICENSE and LICENSES/Kyty-MIT.txt. Downsample only after certification.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0) uniform sampler2D motion_source;
+layout(binding = 1) uniform sampler2D depth_source;
+layout(rg16f, binding = 2) uniform writeonly image2D motion_target;
+layout(r32f, binding = 3) uniform writeonly image2D depth_target;
+layout(push_constant) uniform Constants {
+    mat4 clip_to_previous;
+    vec2 jitter_delta;
+    vec2 jitter_uv;
+    uvec2 size;
+    uint reconstruct_camera;
+} c;
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(p, ivec2(c.size)))) return;
+    vec2 uv = (vec2(p) + 0.5) / vec2(c.size);
+    ivec2 q = min(ivec2(uv * textureSize(motion_source, 0)), textureSize(motion_source, 0) - 1);
+    vec2 value = texelFetch(motion_source, q, 0).rg;
+    float depth = texelFetch(depth_source, q, 0).r;
+    bool invalid = any(isnan(value)) || any(isinf(value)) || any(greaterThan(abs(value), vec2(1.0)));
+    vec2 motion = invalid ? vec2(0.0) : -value - c.jitter_delta;
+    if (invalid && c.reconstruct_camera != 0u) {
+        vec2 current_uv = uv + c.jitter_uv;
+        vec4 previous = c.clip_to_previous * vec4(2.0 * current_uv.x - 1.0, 1.0 - 2.0 * current_uv.y, depth, 1.0);
+        if (!any(isnan(previous)) && !any(isinf(previous)) && previous.w > 0.000001) {
+            vec2 resolved = vec2(previous.x, -previous.y) / previous.w * 0.5 + 0.5 - current_uv;
+            if (!any(isnan(resolved)) && !any(isinf(resolved)) && all(lessThanEqual(abs(resolved), vec2(1.0))))
+                motion = resolved;
+        }
+    }
+    imageStore(motion_target, p, vec4(motion, 0, 0));
+    imageStore(depth_target, p, vec4(depth, 0, 0, 0));
+}

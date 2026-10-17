@@ -120,6 +120,10 @@ static void PrintUsage() {
 	::printf(
 	    "  --present-mode <value>               Fifo, Mailbox, or Immediate. Default: Mailbox.\n");
 	::printf(
+	    "  --fsr-upscale <mode>                 off, native, quality, balanced, performance.\n");
+	::printf(
+	    "  --fsr-frame-generation <on|off>      Experimental verified-title FSR interpolation.\n");
+	::printf(
 	    "  --gpu <index>                        Vulkan physical device index. Default: auto.\n");
 	::printf("  --fullscreen                         Run in borderless desktop fullscreen.\n");
 	::printf(
@@ -501,6 +505,18 @@ static bool ParseArgs(int argc, char* argv[], RunOptions& options, bool& show_he
 				return false;
 			}
 			options.config.presentation_fps = fps;
+		} else if (arg == "--fsr-upscale") {
+			if (value != "off" && value != "native" && value != "quality" && value != "balanced" &&
+			    value != "performance") {
+				::printf("invalid FSR upscaling mode: %s\n", value.c_str());
+				return false;
+			}
+			options.config.fsr_upscale = value;
+		} else if (arg == "--fsr-frame-generation") {
+			if (!ParseBool(value, options.config.fsr_frame_generation)) {
+				::printf("invalid FSR frame generation value: %s\n", value.c_str());
+				return false;
+			}
 		} else if (arg == "--gpu") {
 			if (!ParseInt32(value, options.config.gpu_index)) {
 				::printf("invalid gpu index: %s\n", value.c_str());

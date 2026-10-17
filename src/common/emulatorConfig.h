@@ -69,6 +69,8 @@ struct ConfigOptions {
 	PresentMode            present_mode                = PresentMode::Mailbox;
 	std::optional<bool>     independent_presentation;
 	std::optional<uint32_t> presentation_fps;
+	std::string             fsr_upscale                 = "off";
+	bool                    fsr_frame_generation        = false;
 	int32_t                gpu_index                   = -1;
 	bool                   fullscreen_enabled          = false;
 	bool                   hide_cursor_enabled         = false;
@@ -124,6 +126,8 @@ bool     AudioObjectsEnabled();
 PresentMode GetPresentMode();
 bool                                  IndependentPresentationEnabled();
 uint32_t                              GetPresentationFps();
+const std::string&                    GetFsrUpscale();
+bool                                  FsrFrameGenerationEnabled();
 int32_t GetGpuIndex();
 bool     FullscreenEnabled();
 bool     HideCursorEnabled();

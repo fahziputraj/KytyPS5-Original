@@ -163,6 +163,13 @@ public:
 		TouchImage(image);
 		return image;
 	}
+	// Temporal capture may outlive a guest descriptor. A recycled slot must
+	// reject the old generation instead of binding another image or aborting.
+	[[nodiscard]] Image* TryGetImage(ImageId id) {
+		auto* image = m_slot_images.try_get(id);
+		if (image != nullptr) TouchImage(*image);
+		return image;
+	}
 	void MarkGpuWritten(ImageId id);
 
 	// Content identity around an attachment binding (see Image::ContentSerial). Take a mark

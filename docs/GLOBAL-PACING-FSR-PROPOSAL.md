@@ -5,6 +5,11 @@ Target for an eventual proposal: **Jetsku/KytyPS5**. Development starts on
 This document describes a test branch, not a claim of compatibility with every
 game. Keep normal play's known settings, caches and saves when testing it.
 
+The [2026-10-17 integration checkpoint](FSR-INTEGRATION-CHECKPOINT.md) adds an
+experimental in-game path and saved launcher selections. It has not been
+validated in gameplay. The offscreen prototype results below remain separate
+from that unfinished integration.
+
 ## Changes usable across games
 
 The launcher exposes **Frame delivery**, **Frame limit**, and **CPU scheduling**
@@ -111,8 +116,9 @@ enable game frame generation. Delivery without this flag requires no SDK.
 
 The launcher settings expose the same offscreen test through **Pacing & frame
 generation > Run FSR3 GPU test**, with output and pass/fail status in a dialog.
-The button is unavailable when the optional test package is missing. The UI
-explicitly reports that in-game frame generation is not implemented.
+The button is unavailable when the optional test package is missing. The
+experimental integration also exposes saved upscaling and frame-generation
+selections; see the checkpoint for its restricted adapter and validation limits.
 
 For the validated Astro Bot 01.007 executable, the game's settings also offer
 fixed 30 FPS, adaptive 30-60 FPS, and the original simulation clock. Saving updates

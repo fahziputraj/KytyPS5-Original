@@ -184,6 +184,8 @@ public:
 	PresentMode            present_mode                = PresentMode::Mailbox;
 	QString                presentation_clock          = QStringLiteral("preset");
 	int                    presentation_fps            = -1; // -1 inherits the preset
+	QString                fsr_upscale                 = QStringLiteral("off");
+	bool                   fsr_frame_generation        = false;
 	QString                cpu_hybrid                  = QStringLiteral("preset");
 	int                    gpu_index                   = -1;
 	bool                   fullscreen_enabled          = false;
@@ -222,6 +224,8 @@ public:
 		present_mode                = other.present_mode;
 		presentation_clock          = other.presentation_clock;
 		presentation_fps            = other.presentation_fps;
+		fsr_upscale                 = other.fsr_upscale;
+		fsr_frame_generation        = other.fsr_frame_generation;
 		cpu_hybrid                  = other.cpu_hybrid;
 		gpu_index                   = other.gpu_index;
 		fullscreen_enabled          = other.fullscreen_enabled;

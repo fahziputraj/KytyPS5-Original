@@ -1,7 +1,5 @@
 #include "graphics/host_gpu/renderer/renderDraw.h"
 
-#include "graphics/host_gpu/renderer/drawPrep/ownedCounters.h"
-
 #include "common/assert.h"
 #include "common/common.h"
 #include "common/emulatorConfig.h"
@@ -26,6 +24,8 @@
 #include "graphics/host_gpu/renderer/drawPrep/commitStats.h"
 #include "graphics/host_gpu/renderer/drawPrep/drawPrep.h"
 #include "graphics/host_gpu/renderer/drawPrep/drawRun.h"
+#include "graphics/host_gpu/renderer/drawPrep/ownedCounters.h"
+#include "graphics/host_gpu/renderer/gpuOpProfiler.h"
 #include "graphics/host_gpu/renderer/image/textureCommon.h"
 #include "graphics/host_gpu/renderer/meshIndirect.h"
 #include "graphics/host_gpu/renderer/pipeline/descriptors.h"
@@ -43,7 +43,7 @@
 #include "kernel/memory.h"
 #include "kernel/pthread.h"
 #include "libs/errno.h"
-#include "graphics/host_gpu/renderer/gpuOpProfiler.h"
+#include "loader/systemContent.h"
 
 #include <algorithm>
 #include <array>
@@ -3349,6 +3349,100 @@ static CommitStats::DrawShape MakeCommitShape(
 	return shape;
 }
 
+// Bounded capture for certifying temporal inputs on a particular game build.
+// Render-target formats alone never enable interpolation. Read constants only
+// during resource preparation, before commands for this draw are committed.
+static bool CertifiedTemporalDraw(const DrawRenderState& state) {
+	static const bool supported = [] {
+		std::string title, version;
+		return Loader::SystemContentParamSfoGetString("TITLE_ID", &title) &&
+		       Loader::SystemContentParamSfoGetString("APP_VER", &version) &&
+		       title == "PPSA21564" && version == "01.007.000";
+	}();
+	return FrameGeneration::Requested() && supported && state.ps_active &&
+	       state.ps_input_info.stage.program != nullptr &&
+	       FrameGeneration::CertifiedAstroProducer(state.ps_input_info.stage.program->shader_hash);
+}
+
+static void UpdateTemporalCamera(CommandBuffer& buffer, const DrawRenderState& state) {
+	if (!CertifiedTemporalDraw(state)) return;
+	const auto target = std::find_if(state.color_info, state.color_info + state.color_count,
+	                                 [](const auto& color) { return color.target_slot == 4; });
+	if (target == state.color_info + state.color_count) return;
+	const auto extent  = target->Extent();
+	auto&      context = buffer.GetContext();
+	const auto frame   = context.GetGpu().GetFrameNum();
+	if (context.temporal_camera_frame == frame && context.temporal_camera_extent == extent) return;
+	const auto& pixel = state.ps_input_info.stage;
+	if (pixel.resources == nullptr) return;
+	for (const auto& descriptor: pixel.resources->buffers) {
+		if (descriptor.dword_count < 4) continue;
+		ShaderBufferResource resource {};
+		std::copy_n(descriptor.dwords.data(), 4, resource.fields);
+		if (resource.GetSize() != 576) continue;
+		std::array<float, 124> values {};
+		if (!context.IsMapped(resource.Base48(), sizeof(values)) ||
+		    !context.SynchronizeGpuBackingForRead(resource.Base48(), sizeof(values)) ||
+		    !LibKernel::Memory::TryReadBacking(resource.Base48(), values.data(), sizeof(values)))
+			continue;
+		const auto* previous = context.temporal_camera_frame != UINT64_MAX &&
+		                               frame == context.temporal_camera_frame + 1 &&
+		                               context.temporal_camera_extent == extent
+		                           ? &context.temporal_camera
+		                           : nullptr;
+		auto        camera =
+		    FrameGeneration::DecodeAstroCamera(values, extent.width, extent.height, previous);
+		if (!camera.valid) continue;
+		context.temporal_camera        = camera;
+		context.temporal_camera_frame  = frame;
+		context.temporal_camera_extent = extent;
+		break;
+	}
+}
+
+static void InspectTemporalInputs(CommandBuffer& buffer, const DrawRenderState& state) {
+	static const bool enabled = [] {
+		const auto* value = std::getenv("KYTY_FSR_GUIDE_DIAGNOSTICS");
+		return value != nullptr && std::strcmp(value, "1") == 0;
+	}();
+	if (!enabled || !state.ps_active || state.ps_input_info.stage.program == nullptr) return;
+	const auto& pixel  = state.ps_input_info.stage;
+	const auto  target = std::find_if(state.color_info, state.color_info + state.color_count,
+	                                  [](const auto& color) { return color.target_slot == 4; });
+	if (target == state.color_info + state.color_count) return;
+	static std::unordered_map<uint64_t, uint32_t> seen;
+	if (seen.size() >= 128 && !seen.contains(pixel.program->shader_hash)) return;
+	auto& count = seen[pixel.program->shader_hash];
+	if (count++ != 0) return;
+	const auto extent = target->Extent();
+	Log::WriteToConsoleAndLog(fmt::format(
+	    "FSR guide candidate: PS={:016X} MRT4={} {}x{} depth={} samples={}\n",
+	    pixel.program->shader_hash, vk::to_string(target->desc.view_info.format), extent.width,
+	    extent.height, vk::to_string(state.depth_info.desc.view_info.format),
+	    target->desc.info.samples));
+	if (pixel.resources == nullptr) return;
+	for (const auto& descriptor: pixel.resources->buffers) {
+		if (descriptor.dword_count < 4) continue;
+		ShaderBufferResource resource {};
+		std::copy_n(descriptor.dwords.data(), 4, resource.fields);
+		if (resource.GetSize() != 496 && resource.GetSize() != 576) continue;
+		std::array<float, 144> values {};
+		auto&                  context = buffer.GetContext();
+		if (!context.IsMapped(resource.Base48(), resource.GetSize()) ||
+		    !context.SynchronizeGpuBackingForRead(resource.Base48(), resource.GetSize()) ||
+		    !LibKernel::Memory::TryReadBacking(resource.Base48(), values.data(),
+		                                       resource.GetSize()))
+			continue;
+		for (uint32_t offset = 0; offset < resource.GetSize() / sizeof(float); offset += 4) {
+			Log::WriteToConsoleAndLog(fmt::format("FSR camera candidate: PS={:016X} bytes={} "
+			                                      "offset={} values={:.9g},{:.9g},{:.9g},{:.9g}\n",
+			                                      pixel.program->shader_hash, resource.GetSize(),
+			                                      offset * 4, values[offset], values[offset + 1],
+			                                      values[offset + 2], values[offset + 3]));
+		}
+	}
+}
+
 void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buffer,
                                          const DrawCallInfo& draw, DrawRenderState& state,
                                          vk::PrimitiveTopology topology, const DrawEmitInfo& emit,
@@ -3481,6 +3575,8 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	const bool  plan_stages = plan != nullptr && vertex_stages.size() == 1;
 	CommitStats::StepMark(CommitStats::Step::ExecHead);
 	LogDrawPhase(draw.Name(), "PrepareBindings");
+	InspectTemporalInputs(buffer, state);
+	UpdateTemporalCamera(buffer, state);
 	auto&                            bindings = m_graphics_bindings;
 	std::array<PreparedBindings*, 4> descriptor_stages {};
 	uint32_t                         stage_count = 0;
@@ -3747,6 +3843,21 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	}
 	CommitStats::StepMark(CommitStats::Step::Acquire);
 	CommitStats::Mark(CommitStats::Phase::AcquireTargets);
+	if (CertifiedTemporalDraw(state) && state.depth_info.image_id &&
+	    state.depth_info.desc.view_info.format == vk::Format::eD32SfloatS8Uint &&
+	    m_context.temporal_camera_frame == m_context.GetGpu().GetFrameNum()) {
+		for (uint32_t i = 0; i < state.color_count; ++i) {
+			const auto& color = state.color_info[i];
+			if (color.target_slot != 4 || !color.image_id || color.desc.info.samples != 1 ||
+			    color.desc.view_info.format != vk::Format::eR16G16B16A16Sfloat ||
+			    color.desc.view_info.base_level != 0 || color.desc.view_info.layer_count != 1 ||
+			    m_context.temporal_camera_extent != color.Extent())
+				continue;
+			m_context.temporal_guides = {color.image_id, state.depth_info.image_id, color.Extent(),
+			                             m_context.temporal_camera,
+			                             m_context.temporal_camera_frame};
+		}
+	}
 
 	// Resource preparation above may synchronously finish and restart the scheduler. From this
 	// point onward, every operation targets the current command buffer and cannot touch guest

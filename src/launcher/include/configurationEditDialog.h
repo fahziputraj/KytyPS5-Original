@@ -8,6 +8,7 @@
 #include <QStringList>
 class QGroupBox;
 class QComboBox;
+class QCheckBox;
 class QLabel;
 class QListWidget;
 class QMoveEvent;
@@ -48,6 +49,8 @@ private:
 	bool                         m_global_settings        = false;
 	QComboBox*                   m_clock_profile          = nullptr;
 	QLabel*                      m_clock_status           = nullptr;
+	QComboBox*                   m_fsr_upscale            = nullptr;
+	QCheckBox*                   m_fsr_generation         = nullptr;
 	QList<QJsonDocument>         m_clock_profiles;
 	QJsonDocument                m_clock_document;
 	QByteArray                   m_clock_data;
