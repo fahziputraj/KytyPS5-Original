@@ -11,13 +11,12 @@
 
 #include "graphics/presentation/frameGeneration/fsrPresentation.h"
 
+#include <cstdio>
 #include <ffx_api/ffx_api.h>
 #include <ffx_api/ffx_api_loader.h>
 #include <ffx_api/ffx_framegeneration.h>
 #include <ffx_api/ffx_upscale.h>
 #include <ffx_api/vk/ffx_api_vk.h>
-
-#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -35,11 +34,11 @@ struct Event {
 struct Stub {
 	int                               upscale_tag = 0, generation_tag = 0, swapchain_tag = 0;
 	std::vector<Event>                events;
-	ffxReturnCode_t                   upscale_result = FFX_API_RETURN_OK;
-	ffxReturnCode_t                   prepare_result = FFX_API_RETURN_OK;
-	FfxApiFrameGenerationDispatchFunc callback       = nullptr;
-	void*                             callback_data  = nullptr;
-	int                               live_contexts  = 0;
+	ffxReturnCode_t                   upscale_result      = FFX_API_RETURN_OK;
+	ffxReturnCode_t                   prepare_result      = FFX_API_RETURN_OK;
+	FfxApiFrameGenerationDispatchFunc callback            = nullptr;
+	void*                             callback_data       = nullptr;
+	int                               live_contexts       = 0;
 	bool                              last_callback_reset = false;
 } g_stub;
 
@@ -51,7 +50,7 @@ ffxReturnCode_t StubCreate(ffxContext* context, ffxCreateContextDescHeader* desc
 			*context = &g_stub.generation_tag;
 			break;
 		case FFX_API_CREATE_CONTEXT_DESC_TYPE_FGSWAPCHAIN_VK: {
-			*context = &g_stub.swapchain_tag;
+			*context     = &g_stub.swapchain_tag;
 			auto* create = reinterpret_cast<ffxCreateContextDescFrameGenerationSwapChainVK*>(desc);
 			*create->swapchain = reinterpret_cast<VkSwapchainKHR>(uintptr_t(0x5C));
 			break;
@@ -69,9 +68,10 @@ ffxReturnCode_t StubDestroy(ffxContext* context, const ffxAllocationCallbacks*) 
 }
 
 ffxReturnCode_t StubConfigure(ffxContext* context, const ffxConfigureDescHeader* desc) {
-	if (*context != &g_stub.generation_tag || desc->type != FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION)
+	if (*context != &g_stub.generation_tag ||
+	    desc->type != FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION)
 		return FFX_API_RETURN_ERROR_PARAMETER;
-	const auto* config = reinterpret_cast<const ffxConfigureDescFrameGeneration*>(desc);
+	const auto* config   = reinterpret_cast<const ffxConfigureDescFrameGeneration*>(desc);
 	g_stub.callback      = config->frameGenerationCallback;
 	g_stub.callback_data = config->frameGenerationCallbackUserContext;
 	g_stub.events.push_back({"configure", config->frameID, config->frameGenerationEnabled});
@@ -92,7 +92,8 @@ VkResult VKAPI_CALL StubPresent(VkQueue, const VkPresentInfoKHR*) {
 }
 
 ffxReturnCode_t StubQuery(ffxContext* context, ffxQueryDescHeader* desc) {
-	if (*context != &g_stub.swapchain_tag || desc->type != FFX_API_QUERY_DESC_TYPE_FGSWAPCHAIN_FUNCTIONS_VK)
+	if (*context != &g_stub.swapchain_tag ||
+	    desc->type != FFX_API_QUERY_DESC_TYPE_FGSWAPCHAIN_FUNCTIONS_VK)
 		return FFX_API_RETURN_ERROR_PARAMETER;
 	auto* functions = reinterpret_cast<ffxQueryDescSwapchainReplacementFunctionsVK*>(desc);
 	functions->pOutAcquireNextImageKHR   = StubAcquire;
@@ -111,7 +112,8 @@ ffxReturnCode_t StubDispatch(ffxContext* context, const ffxDispatchDescHeader* d
 		}
 		case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE: {
 			if (*context != &g_stub.generation_tag) return FFX_API_RETURN_ERROR_PARAMETER;
-			const auto* prepare = reinterpret_cast<const ffxDispatchDescFrameGenerationPrepare*>(desc);
+			const auto* prepare =
+			    reinterpret_cast<const ffxDispatchDescFrameGenerationPrepare*>(desc);
 			g_stub.events.push_back({"prepare", prepare->frameID, false, prepare->commandList});
 			return g_stub.prepare_result;
 		}
@@ -145,11 +147,11 @@ T Fake(uintptr_t value) {
 
 FsrFrame Frame(uint64_t id) {
 	FsrFrame frame;
-	frame.color  = {Fake<VkImage>(0x10), VK_FORMAT_R8G8B8A8_UNORM, 960, 540};
-	frame.depth  = {Fake<VkImage>(0x11), VK_FORMAT_R32_SFLOAT, 960, 540};
-	frame.motion = {Fake<VkImage>(0x12), VK_FORMAT_R16G16_SFLOAT, 960, 540};
-	frame.output = {Fake<VkImage>(0x13), VK_FORMAT_R8G8B8A8_UNORM, 1920, 1080};
-	frame.id     = id;
+	frame.color                = {Fake<VkImage>(0x10), VK_FORMAT_R8G8B8A8_UNORM, 960, 540};
+	frame.depth                = {Fake<VkImage>(0x11), VK_FORMAT_R32_SFLOAT, 960, 540};
+	frame.motion               = {Fake<VkImage>(0x12), VK_FORMAT_R16G16_SFLOAT, 960, 540};
+	frame.output               = {Fake<VkImage>(0x13), VK_FORMAT_R8G8B8A8_UNORM, 1920, 1080};
+	frame.id                   = id;
 	frame.milliseconds         = 33.3f;
 	frame.near_plane           = 0.1f;
 	frame.far_plane            = 1000.0f;
