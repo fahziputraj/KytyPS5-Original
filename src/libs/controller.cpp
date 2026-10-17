@@ -515,12 +515,14 @@ void GameController::UpdateHostMotion() {
 			m_state.accel        = {0.0f, 1.0f, 0.0f};
 			m_state.gyro         = {};
 			m_state.orientation  = {0.0f, 0.0f, 0.0f, 1.0f};
+			m_state.time         = LibKernel::KernelGetProcessTime();
 			for (uint32_t i = 0; i < m_states_num; ++i) {
 				auto& pending       = m_states[(m_first_state + i) % STATES_MAX];
 				pending.accel       = m_state.accel;
 				pending.gyro        = m_state.gyro;
 				pending.orientation = m_state.orientation;
 			}
+			AddState();
 		}
 		for (auto& device: m_motion_devices) {
 			for (size_t i = 0; i < device.sensors.size(); ++i) {

@@ -562,10 +562,13 @@ void TestMotionSourceAndHardwareLifetime() {
 		Check(PadReadState(1, &data) == 0 && data.angular_velocity_y == 2.0f &&
 		          (data.buttons & PAD_BUTTON_CROSS) != 0 && GetActiveControllerId() == 1,
 		      "a separate motion source displaced XInput buttons or lost gyro");
+		const auto previous_time = data.timestamp;
+		now += 20;
 		Disconnect(2);
 		UpdateHostMotion();
 		Check(PadReadState(1, &data) == 0 && data.angular_velocity_y == 0.0f,
 		      "disconnected motion source retained stale gyro");
+		Check(data.timestamp > previous_time, "motion disconnect did not publish a new timestamp");
 		PadData    history[64] {};
 		const auto size = PadRead(1, history, 64);
 		for (int i = 0; i < size; ++i) {
