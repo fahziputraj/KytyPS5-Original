@@ -6,6 +6,15 @@ game's normal rate. It is not a universal compatibility patch or a finished
 performance release. The underlying emulator and most renderer optimizations
 come from KytyPS5 and Jetsku's fork.
 
+## Try the Windows preview
+
+The [experimental Windows prerelease](https://github.com/fahziputraj/KytyPS5-Original/releases/tag/pacing-preview-20261017.1)
+includes portable fixed-30 and adaptive launch options, source references,
+licenses and SHA-256 checksums. Read the [setup and limits](PACING-PREVIEW-RELEASE.md)
+before testing. Only the verified PPSA21564 01.007.000 executable has a bundled
+game-clock profile. The generic controls do not provide a universal speed fix,
+and in-game FSR frame generation is not available.
+
 ## What the October 17 recording shows
 
 The Sky Garden recording was captured around 06:58-07:01 WIB on October 17, 2026.
